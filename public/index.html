@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Comote</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-frame">
+      <aside class="side-nav" aria-label="主导航">
+        <div class="side-brand">
+          <img class="brand-logo" src="/logo.svg" alt="Comote">
+          <div>
+            <h1>Comote</h1>
+            <p>手机上的 Codex</p>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <div class="nav-group-label">通道</div>
+          <a class="nav-item active" href="#connectPhone">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
+            连接手机
+          </a>
+          <a class="nav-item" href="#phoneCommands">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10"/><path d="M2 21h20"/></svg>
+            从手机使用
+          </a>
+          <a class="nav-item" href="#approvals">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
+            待审批<span id="approvalsNavCount" class="nav-count" hidden>0</span>
+          </a>
+          <a class="nav-item" href="#users">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg>
+            授权用户
+          </a>
+          <div class="nav-group-label">记录</div>
+          <a class="nav-item" href="#conversation">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            对话记录
+          </a>
+          <a class="nav-item" href="#logs">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+            运行日志
+          </a>
+          <a class="nav-item" href="#advanced">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            高级设置
+          </a>
+        </nav>
+        <div class="sidebar-foot" id="sidebarVersion">版本 · 检查中</div>
+      </aside>
+
+      <main class="main-pane">
+        <header class="top-bar">
+          <div>
+            <h1 class="top-title">Comote 设置</h1>
+            <p class="top-subtitle">把 Codex 接到你的手机上，随时随地继续你的工作。</p>
+          </div>
+          <span id="bridgeStatus" class="status-pill">启动中</span>
+        </header>
+
+        <section id="updateNotice" class="system-notice" hidden>
+          <div>
+            <strong>有新版本可用：<span id="updateLatestVersion"></span></strong>
+            <p>当前版本 <span id="updateCurrentVersion"></span>。点击下载并替换本机的 Comote。</p>
+          </div>
+          <a id="updateDownloadLink" class="secondary-button" href="#" target="_blank" rel="noopener">下载新版</a>
+        </section>
+
+        <section id="codexNotice" class="system-notice" hidden>
+          <div>
+            <strong>需要打开 Codex Desktop</strong>
+            <p>请先在本机打开 Codex Desktop，然后重试。</p>
+          </div>
+          <button id="retryCodexConnection" class="secondary-button" data-default-label="重试" type="button">重试</button>
+        </section>
+
+        <section id="loadError" class="system-notice error-notice" hidden>
+          <div>
+            <strong id="loadErrorTitle">加载设置时出错</strong>
+            <p id="loadErrorDetail"></p>
+          </div>
+          <button id="retryLoad" class="secondary-button" type="button">重试</button>
+        </section>
+
+        <section id="readiness" class="section-block" hidden>
+          <div class="section-heading">
+            <h2>开始使用</h2>
+            <p>完成下面几步，就能从手机控制本机 Codex。</p>
+          </div>
+          <ul id="readinessList" class="readiness-list"></ul>
+        </section>
+
+        <section id="connectPhone" class="section-block">
+          <div class="section-heading">
+            <h2>连接手机</h2>
+            <p>选择一个手机通道，绑定后即可从手机控制本机 Codex。<strong>推荐用飞书</strong> —— 接口稳定、支持卡片交互，体验更好。</p>
+          </div>
+
+          <div class="channel-grid">
+            <article class="channel-card">
+              <div class="channel-head">
+                <div class="channel-tile feishu-icon" aria-hidden="true">飞</div>
+                <div class="ch-meta">
+                  <h3>飞书</h3>
+                  <div class="ch-sub">通过飞书机器人收发消息</div>
+                </div>
+                <span id="feishuBadge" class="badge warning">需要设置</span>
+              </div>
+
+              <dl id="feishuStatus" class="kv status-rows"></dl>
+
+              <div id="feishuLoginResult" class="qr-result">
+                <div class="qr-glyph">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#c4c2bc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7M17 21v-4"/></svg>
+                </div>
+                <span>完成应用授权后，二维码会显示在这里</span>
+              </div>
+
+              <div class="feishu-domain-field">
+                <label class="domain-label">飞书域名</label>
+                <form id="feishuConfigForm" class="stack-form channel-config-form feishu-domain-select">
+                  <label class="select-wrap">
+                    <select name="domain">
+                      <option value="feishu">飞书 · feishu.cn（中国）</option>
+                      <option value="lark">Lark · larksuite.com（海外）</option>
+                    </select>
+                  </label>
+                </form>
+              </div>
+
+              <div class="actions card-actions">
+                <button id="startFeishuLogin" type="button" class="btn-primary-card">绑定飞书</button>
+              </div>
+            </article>
+
+            <article class="channel-card">
+              <div class="channel-head">
+                <div class="channel-tile wechat-icon" aria-hidden="true">微</div>
+                <div class="ch-meta">
+                  <h3>微信</h3>
+                  <div class="ch-sub">通过个人微信收发消息</div>
+                </div>
+                <span id="wechatBadge" class="badge">未绑定</span>
+              </div>
+
+              <dl id="wechatStatus" class="kv status-rows"></dl>
+
+              <div id="wechatLoginResult" class="qr-result">
+                <div class="qr-glyph">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#c4c2bc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7M17 21v-4"/></svg>
+                </div>
+                <span>点击「绑定微信」后，二维码会显示在这里</span>
+              </div>
+
+              <div class="actions card-actions">
+                <button id="startWechatLogin" type="button" class="btn-primary-card">绑定微信</button>
+              </div>
+
+              <form id="wechatConfigForm" class="hidden-form">
+                <label><input name="enabled" type="checkbox" checked> 启用</label>
+                <input name="accountId" type="hidden" value="default">
+                <button type="submit">保存</button>
+              </form>
+            </article>
+          </div>
+        </section>
+
+        <section id="phoneCommands" class="section-block">
+          <div class="section-heading inline-heading">
+            <div>
+              <h2>从手机使用</h2>
+              <p>绑定任一通道后，在微信或飞书发送命令。</p>
+            </div>
+            <span class="badge neutral">微信和飞书均可用</span>
+          </div>
+
+          <div class="command-grid">
+            <code>/projects</code>
+            <code>/open 1</code>
+            <code>/sessions</code>
+            <code>/new fix tests</code>
+            <code>/approve &lt;id&gt;</code>
+            <code>/cancel</code>
+          </div>
+        </section>
+
+        <section id="approvals" class="section-block">
+          <div class="section-heading inline-heading">
+            <div>
+              <h2>待审批操作</h2>
+              <p>Codex 请求执行命令或修改文件时，会在这里等待你批准。</p>
+            </div>
+            <span id="approvalsBadge" class="badge neutral">0 项待处理</span>
+          </div>
+          <ul id="approvalsList" class="list"></ul>
+        </section>
+
+        <section id="users" class="section-block">
+          <div class="section-heading">
+            <h2>授权用户</h2>
+            <p>只有在本机确认过的微信或飞书用户可以控制 Comote。</p>
+          </div>
+
+          <div class="user-grid">
+            <article class="panel">
+              <h3>已授权用户</h3>
+              <ul id="identities" class="list"></ul>
+            </article>
+            <article class="panel">
+              <h3>待确认用户</h3>
+              <ul id="identityCandidates" class="list compact-list"></ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="conversation" class="section-block">
+          <div class="section-heading">
+            <h2>对话记录</h2>
+            <p>手机上与 Codex 的最近往来，daemon 重启后保留。</p>
+          </div>
+          <div id="conversationList"></div>
+        </section>
+
+        <section id="logs" class="section-block">
+          <div class="section-heading inline-heading">
+            <div>
+              <h2>运行日志</h2>
+              <p>本次运行的诊断事件。重启 daemon 后清空。</p>
+            </div>
+            <button id="refreshLogs" class="secondary-button" type="button">刷新</button>
+          </div>
+          <ul id="logList" class="list log-list"></ul>
+        </section>
+
+        <details id="advanced" class="advanced">
+          <summary>高级设置</summary>
+          <section class="advanced-grid">
+            <article class="panel">
+              <h3>Codex 项目</h3>
+              <div class="actions">
+                <button id="discoverProjects" type="button">刷新</button>
+              </div>
+              <ul id="projects" class="list"></ul>
+            </article>
+
+            <article class="panel">
+              <h3>诊断</h3>
+              <dl id="connections" class="kv"></dl>
+              <div class="actions">
+                <button id="connectDesktop" class="secondary-button" type="button">重试连接 Codex Desktop</button>
+              </div>
+            </article>
+
+            <article class="panel">
+              <h3>Codex 对话</h3>
+              <ul id="threads" class="list"></ul>
+            </article>
+
+            <article class="panel">
+              <h3>手动添加用户</h3>
+              <form id="identityForm" class="inline-form">
+                <select name="channel" aria-label="通道">
+                  <option value="wechat">微信</option>
+                  <option value="feishu">飞书</option>
+                </select>
+                <input name="stableId" placeholder="用户 ID" required>
+                <input name="displayName" placeholder="显示名称" required>
+                <button type="submit">确认</button>
+              </form>
+            </article>
+          </section>
+        </details>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

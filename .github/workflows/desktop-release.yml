@@ -1,0 +1,44 @@
+name: Desktop release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  mac-universal:
+    name: Comote macOS universal DMG
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Comote-0.2.0-universal.dmg
+          path: release/Comote-0.2.0-universal.dmg
+          if-no-files-found: error
+
+  windows-x64:
+    name: Comote Windows x64 installer
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Comote-Setup-0.2.0-x64.exe
+          path: release/Comote-Setup-0.2.0-x64.exe
+          if-no-files-found: error

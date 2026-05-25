@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Comote">
+  <rect width="100" height="100" rx="20" fill="#4F46E5"/>
+  <path d="M30 35H70M30 50H70M30 65H55" stroke="white" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="75" cy="75" r="15" fill="#10B981"/>
+  <path d="M70 75L74 79L80 71" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

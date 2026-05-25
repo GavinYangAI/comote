@@ -1,0 +1,44 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Comote",
+  "version": "0.2.0",
+  "identifier": "dev.comote.desktop",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../public"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "category": "Productivity",
+    "externalBin": ["binaries/comote-node"],
+    "resources": {
+      "../src": "comote-server/src",
+      "../public": "comote-server/public",
+      "../package.json": "comote-server/package.json",
+      "../build-assets/runtime-deps/node_modules": "comote-server/node_modules"
+    },
+    "icon": [
+      "../build-assets/AppIcon.png",
+      "../build-assets/AppIcon.icns",
+      "../build-assets/AppIcon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    },
+    "windows": {
+      "nsis": {
+        "installerIcon": "../build-assets/AppIcon.ico",
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

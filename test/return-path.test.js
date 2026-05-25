@@ -1,0 +1,203 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { createComoteState } from "../src/server/state.js";
+import { CodexDesktopConnector } from "../src/connectors/codex-desktop/index.js";
+
+class MemoryTransport {
+  constructor() {
+    this.sent = [];
+    this.messageHandler = null;
+  }
+  async connect() {}
+  send(message) {
+    this.sent.push(JSON.parse(message));
+  }
+  onMessage(handler) {
+    this.messageHandler = handler;
+  }
+  receive(message) {
+    this.messageHandler(JSON.stringify(message));
+  }
+  async close() {}
+}
+
+function buildState() {
+  const transport = new MemoryTransport();
+  const desktop = new CodexDesktopConnector({ transport });
+  const state = createComoteState({
+    desktop,
+    autoStartWeChatRuntime: false,
+    autoStartFeishuRuntime: false,
+  });
+  return { transport, desktop, state };
+}
+
+test("Codex agent output is routed back to the originating WeChat conversation", async () => {
+  const { transport, desktop, state } = buildState();
+  await desktop.client.connect();
+
+  // Bind a Codex thread to a WeChat conversation, as the router does when a
+  // phone user starts or resumes a session.
+  state.commandRouter.conversationByIdentity.set("wechat:acct:peer", {
+    channel: "wechat",
+    conversationId: "dm_peer",
+    accountId: "acct",
+  });
+  state.commandRouter.bindThreadForIdentity({ channel: "wechat", stableId: "acct:peer" }, "thread_42");
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: {
+      threadId: "thread_42",
+      item: { type: "agentMessage", id: "item_1", text: "all tests pass" },
+    },
+  });
+
+  const queued = state.outboundReplies.list({ channel: "wechat" });
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].conversationId, "dm_peer");
+  assert.equal(queued[0].accountId, "acct");
+  assert.equal(queued[0].text, "all tests pass");
+});
+
+test("Codex approval requests are pushed to the phone with a short code", async () => {
+  const { transport, desktop, state } = buildState();
+  await desktop.client.connect();
+
+  state.commandRouter.conversationByIdentity.set("wechat:acct:peer", {
+    channel: "wechat",
+    conversationId: "dm_peer",
+    accountId: "acct",
+  });
+  state.commandRouter.bindThreadForIdentity({ channel: "wechat", stableId: "acct:peer" }, "thread_42");
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/commandExecution/requestApproval",
+    id: "rpc_1",
+    params: { threadId: "thread_42", command: "rm -rf build", cwd: "/repo" },
+  });
+
+  const queued = state.outboundReplies.list({ channel: "wechat" });
+  assert.equal(queued.length, 1);
+  assert.match(queued[0].text, /请求审批/);
+  assert.match(queued[0].text, /rm -rf build/);
+  assert.match(queued[0].text, /\/approve a1/);
+});
+
+test("agent output for an unbound thread is logged but not delivered", async () => {
+  const { transport, desktop, state } = buildState();
+  await desktop.client.connect();
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: {
+      threadId: "thread_unknown",
+      item: { type: "agentMessage", id: "item_1", text: "orphan output" },
+    },
+  });
+
+  assert.equal(state.outboundReplies.list({ channel: "wechat" }).length, 0);
+  assert.ok(state.eventLog.list().some((entry) => /找不到对应会话/.test(entry.message)));
+});
+
+test("Codex streaming for a Feishu thread drives a live card", async () => {
+  const { transport, desktop, state } = buildState();
+  await desktop.client.connect();
+
+  // Bind a Codex thread to a Feishu conversation.
+  state.commandRouter.conversationByIdentity.set("feishu:ou_owner", {
+    channel: "feishu",
+    conversationId: "oc_chat",
+  });
+  state.commandRouter.bindThreadForIdentity(
+    { channel: "feishu", stableId: "ou_owner" },
+    "thread_f",
+  );
+
+  // Capture driver card calls by swapping in a fake driver.
+  const calls = { sent: [], updated: [] };
+  state.runtime.feishu.__setTestDriver({
+    getStatus: () => ({ state: "configured" }),
+    verifyEvent: () => true,
+    async sendCard(message) {
+      calls.sent.push(message);
+      return { messageId: "om_live" };
+    },
+    async updateCard(message) {
+      calls.updated.push(message);
+      return { code: 0 };
+    },
+  });
+
+  transport.receive({ jsonrpc: "2.0", method: "turn/started", params: { threadId: "thread_f" } });
+  await tick();
+  assert.equal(calls.sent.length, 1, "turn start opens a card");
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/updated",
+    params: { threadId: "thread_f", item: { type: "agentMessage", id: "i1", text: "half" } },
+  });
+  await tick();
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: { threadId: "thread_f", item: { type: "agentMessage", id: "i1", text: "final answer" } },
+  });
+  await tick();
+
+  const lastUpdate = calls.updated.at(-1);
+  assert.ok(lastUpdate, "the card was updated");
+  assert.ok(
+    JSON.stringify(lastUpdate.card).includes("final answer"),
+    "final card carries the completed answer",
+  );
+  // Feishu streaming must not also enqueue chunked text.
+  assert.equal(state.outboundReplies.list({ channel: "feishu" }).length, 0);
+});
+
+// Lets queued microtasks (the async card calls) settle.
+function tick() {
+  return new Promise((resolve) => setTimeout(resolve, 5));
+}
+
+test("a Codex approval for a Feishu thread is delivered as a card", async () => {
+  const { transport, desktop, state } = buildState();
+  await desktop.client.connect();
+
+  state.commandRouter.conversationByIdentity.set("feishu:ou_owner", {
+    channel: "feishu",
+    conversationId: "oc_chat",
+  });
+  state.commandRouter.bindThreadForIdentity(
+    { channel: "feishu", stableId: "ou_owner" },
+    "thread_f",
+  );
+
+  const calls = { sent: [] };
+  state.runtime.feishu.__setTestDriver({
+    getStatus: () => ({ state: "configured" }),
+    verifyEvent: () => true,
+    async sendCard(message) {
+      calls.sent.push(message);
+      return { messageId: "om_approval" };
+    },
+    async updateCard() {},
+  });
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/commandExecution/requestApproval",
+    id: "rpc_1",
+    params: { threadId: "thread_f", command: "rm -rf build", cwd: "/repo" },
+  });
+  await tick();
+
+  assert.equal(calls.sent.length, 1);
+  const action = calls.sent[0].card.elements.find((el) => el.tag === "action");
+  assert.deepEqual(action.actions.map((b) => b.value.decision), ["accept", "decline"]);
+});

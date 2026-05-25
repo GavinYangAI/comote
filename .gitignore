@@ -1,0 +1,13 @@
+.comote/
+.private-docs/
+.DS_Store
+node_modules/
+dist/
+release/
+build-assets/
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/
+npm-debug.log*
+.gstack/
+build-assets/runtime-deps/

@@ -1,0 +1,502 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { CodexDesktopConnector } from "../src/connectors/codex-desktop/index.js";
+import { CodexCliConnector } from "../src/connectors/codex-cli/index.js";
+
+class MemoryTransport {
+  constructor() {
+    this.sent = [];
+    this.messageHandler = null;
+    this.open = false;
+  }
+
+  async connect() {
+    this.open = true;
+  }
+
+  send(message) {
+    const payload = JSON.parse(message);
+    this.sent.push(payload);
+  }
+
+  onMessage(handler) {
+    this.messageHandler = handler;
+  }
+
+  receive(message) {
+    this.messageHandler(JSON.stringify(message));
+  }
+
+  async close() {
+    this.open = false;
+  }
+}
+
+class FailingTransport {
+  async connect() {
+    throw new Error("ECONNREFUSED");
+  }
+}
+
+function flushAsyncWork() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+test("desktop connector is the primary Codex connector", () => {
+  const connector = new CodexDesktopConnector();
+
+  assert.deepEqual(connector.getStatus(), {
+    name: "Codex Desktop",
+    role: "primary",
+    state: "not_connected",
+    protocol: "app-server",
+    endpoint: "codex app-server (stdio)",
+  });
+});
+
+test("desktop connector initializes through app-server JSON-RPC", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+  const initialized = connector.initialize();
+  await flushAsyncWork();
+
+  assert.deepEqual(transport.sent[0], {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      clientInfo: {
+        name: "comote",
+        title: "Comote",
+        version: "0.2.0",
+      },
+      capabilities: {
+        experimentalApi: true,
+        optOutNotificationMethods: [],
+      },
+    },
+  });
+
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      userAgent: "codex-app-server-test",
+      codexHome: "/home/test/.codex",
+      platformFamily: "unix",
+      platformOs: "macos",
+    },
+  });
+
+  assert.equal((await initialized).platformOs, "macos");
+  assert.equal(connector.getStatus().state, "connected");
+});
+
+test("desktop connector initialize is idempotent once connected", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+  const initialized = connector.initialize();
+  await flushAsyncWork();
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 1,
+    result: { platformOs: "macos" },
+  });
+  await initialized;
+  assert.equal(connector.getStatus().state, "connected");
+  const sentCount = transport.sent.length;
+  // Re-clicking "retry connect" while already connected must not re-send.
+  await connector.initialize();
+  assert.equal(transport.sent.length, sentCount, "second initialize() must not re-send");
+});
+
+test("desktop connector treats 'Already initialized' as a successful connection", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+  const initialized = connector.initialize();
+  await flushAsyncWork();
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 1,
+    error: { code: -32603, message: "Already initialized" },
+  });
+  await initialized;
+  assert.equal(connector.getStatus().state, "connected");
+});
+
+test("desktop connector surfaces a connection failure instead of silently retrying", async () => {
+  const connector = new CodexDesktopConnector({
+    transportFactory: () => new FailingTransport(),
+  });
+
+  await assert.rejects(connector.initialize(), /ECONNREFUSED/);
+  assert.equal(connector.getStatus().state, "not_connected");
+});
+
+test("desktop connector lists and starts Codex threads", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+
+  const listPromise = connector.listThreads({ cwd: "/repo" });
+  await flushAsyncWork();
+  assert.equal(transport.sent[0].method, "thread/list");
+  assert.deepEqual(transport.sent[0].params, {
+    cwd: "/repo",
+    archived: false,
+    limit: 20,
+    useStateDbOnly: false,
+  });
+  transport.receive({ jsonrpc: "2.0", id: 1, result: { threads: [] } });
+  assert.deepEqual(await listPromise, { threads: [] });
+
+  const startPromise = connector.startThread({ cwd: "/repo" });
+  await flushAsyncWork();
+  assert.equal(transport.sent[1].method, "thread/start");
+  assert.equal(transport.sent[1].params.cwd, "/repo");
+  assert.equal(transport.sent[1].params.approvalsReviewer, "user");
+  assert.equal(transport.sent[1].params.experimentalRawEvents, false);
+  assert.equal(transport.sent[1].params.persistExtendedHistory, false);
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 2,
+    result: {
+      thread: { id: "thread_1" },
+      model: "gpt-5.2",
+      modelProvider: "openai",
+      serviceTier: null,
+      cwd: "/repo",
+      instructionSources: [],
+      approvalPolicy: "on-request",
+      approvalsReviewer: "client",
+      sandbox: { mode: "workspace-write" },
+      permissionProfile: null,
+      activePermissionProfile: null,
+      reasoningEffort: null,
+    },
+  });
+  assert.equal((await startPromise).thread.id, "thread_1");
+});
+
+test("desktop connector derives projects and marks Desktop or CLI sources", async () => {
+  const transport = new MemoryTransport();
+  // No global-state file -> falls back to deriving projects from thread history.
+  const connector = new CodexDesktopConnector({ transport, codexStatePath: "/nonexistent/codex-state.json" });
+
+  const projectsPromise = connector.listProjects();
+  await flushAsyncWork();
+  assert.equal(transport.sent[0].method, "thread/list");
+  assert.deepEqual(transport.sent[0].params, {
+    cwd: null,
+    archived: false,
+    limit: 100,
+    useStateDbOnly: false,
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      threads: [
+        { id: "thread_0", cwd: "/repo/cli-only", source: "cli" },
+        { id: "thread_1", cwd: "/repo/comote", source: "desktop" },
+        { id: "thread_2", cwd: "/repo/agentstaff" },
+        { id: "thread_3", cwd: "/repo/comote", threadSource: "cli" },
+      ],
+    },
+  });
+
+  assert.deepEqual(await projectsPromise, [
+    { name: "agentstaff", path: "/repo/agentstaff", source: "codex-desktop", status: "available" },
+    { name: "cli-only", path: "/repo/cli-only", source: "codex-cli", status: "available" },
+    { name: "comote", path: "/repo/comote", source: "codex-desktop+cli", status: "available" },
+  ]);
+});
+
+test("desktop connector starts turns and records approval requests", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+
+  const turnPromise = connector.startTurn({
+    threadId: "thread_1",
+    text: "fix tests",
+    cwd: "/repo",
+  });
+  await flushAsyncWork();
+  assert.deepEqual(transport.sent[0], {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "turn/start",
+    params: {
+      threadId: "thread_1",
+      input: [{ type: "text", text: "fix tests", text_elements: [] }],
+      cwd: "/repo",
+      approvalsReviewer: "user",
+    },
+  });
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/commandExecution/requestApproval",
+    id: "approval_1",
+    params: {
+      threadId: "thread_1",
+      command: "npm test",
+      cwd: "/repo",
+    },
+  });
+  transport.receive({ jsonrpc: "2.0", id: 1, result: { turnId: "turn_1" } });
+
+  assert.deepEqual(await turnPromise, { turnId: "turn_1" });
+  assert.deepEqual(connector.listPendingApprovals(), [
+    {
+      id: "approval_1",
+      rpcId: "approval_1",
+      shortCode: "a1",
+      threadId: "thread_1",
+      changes: null,
+      method: "item/commandExecution/requestApproval",
+      params: {
+        threadId: "thread_1",
+        command: "npm test",
+        cwd: "/repo",
+      },
+    },
+  ]);
+});
+
+test("desktop connector emits thread events and routes approvals by short code", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+  const events = [];
+  connector.onEvent = (event) => events.push(event);
+  await connector.client.connect(); // registers the transport message handler
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "turn/started",
+    params: { threadId: "thread_9" },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: {
+      threadId: "thread_9",
+      item: { type: "agentMessage", id: "item_1", text: "done fixing tests" },
+    },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/commandExecution/requestApproval",
+    id: "approval_9",
+    params: { threadId: "thread_9", command: "rm -rf build", cwd: "/repo" },
+  });
+
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["turnStarted", "agentMessage", "approval"],
+  );
+  assert.equal(events[1].text, "done fixing tests");
+  assert.equal(events[1].threadId, "thread_9");
+
+  // The short code assigned to the approval resolves the same request.
+  const shortCode = events[2].approval.shortCode;
+  assert.deepEqual(await connector.resolveApproval(shortCode, "accept"), { ok: true });
+  assert.deepEqual(connector.listPendingApprovals(), []);
+  assert.equal(transport.sent.at(-1).id, "approval_9");
+});
+
+test("file-change approvals carry the diff so the phone can show what changes", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+  await connector.client.connect();
+
+  // The patch arrives before the approval request, keyed by itemId.
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/fileChange/patchUpdated",
+    params: {
+      threadId: "thread_1",
+      turnId: "turn_1",
+      itemId: "item_5",
+      changes: [{ path: "src/app.js", kind: { type: "update", move_path: null }, diff: "+a\n+b\n-c" }],
+    },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/fileChange/requestApproval",
+    id: "approval_5",
+    params: { threadId: "thread_1", turnId: "turn_1", itemId: "item_5" },
+  });
+
+  const [approval] = connector.listPendingApprovals();
+  assert.equal(approval.changes.length, 1);
+  assert.equal(approval.changes[0].path, "src/app.js");
+});
+
+test("desktop connector lists the active workspace first, then project order", async () => {
+  const statePath = join(tmpdir(), `comote-codex-state-${process.pid}.json`);
+  writeFileSync(
+    statePath,
+    JSON.stringify({
+      "active-workspace-roots": ["/home/test/projects/team-skills"],
+      "project-order": ["/home/test/projects/alpha", "/home/test/projects/beta"],
+      "electron-saved-workspace-roots": ["/home/test/projects/alpha"],
+    }),
+  );
+  try {
+    const connector = new CodexDesktopConnector({ transport: new MemoryTransport(), codexStatePath: statePath });
+    const projects = await connector.listProjects();
+    assert.deepEqual(
+      projects.map((p) => [p.name, p.active]),
+      [
+        ["team-skills", true],
+        ["alpha", false],
+        ["beta", false],
+      ],
+    );
+  } finally {
+    rmSync(statePath, { force: true });
+  }
+});
+
+test("desktop connector resumes existing Codex Desktop threads", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+
+  const resumePromise = connector.resumeThread({ threadId: "thread_1" });
+  await flushAsyncWork();
+
+  assert.deepEqual(transport.sent[0], {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "thread/resume",
+    params: { threadId: "thread_1" },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 1,
+    result: { thread: { id: "thread_1", preview: "Existing thread" } },
+  });
+
+  assert.deepEqual(await resumePromise, { thread: { id: "thread_1", preview: "Existing thread" } });
+});
+
+test("desktop connector interrupts the active turn when cancelling", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+
+  const cancelPromise = connector.cancelTurn({ threadId: "thread_1" });
+  await flushAsyncWork();
+  assert.deepEqual(transport.sent[0], {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "thread/turns/list",
+    params: { threadId: "thread_1" },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      data: [
+        { id: "turn_done", status: "completed" },
+        { id: "turn_active", status: "inProgress" },
+      ],
+    },
+  });
+  await flushAsyncWork();
+  assert.deepEqual(transport.sent[1], {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "turn/interrupt",
+    params: { threadId: "thread_1", turnId: "turn_active" },
+  });
+  transport.receive({ jsonrpc: "2.0", id: 2, result: { ok: true } });
+
+  assert.deepEqual(await cancelPromise, { ok: true });
+});
+
+test("desktop connector resolves command approval requests", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+
+  connector.client.handleMessage({
+    jsonrpc: "2.0",
+    method: "item/commandExecution/requestApproval",
+    id: "approval_1",
+    params: {
+      threadId: "thread_1",
+      turnId: "turn_1",
+      itemId: "item_1",
+      startedAtMs: 1,
+      command: "npm test",
+      cwd: "/repo",
+    },
+  });
+
+  await connector.resolveApproval("approval_1", "accept");
+
+  assert.deepEqual(transport.sent[0], {
+    jsonrpc: "2.0",
+    id: "approval_1",
+    result: { decision: "accept" },
+  });
+  assert.deepEqual(connector.listPendingApprovals(), []);
+});
+
+test("desktop connector resolves legacy exec approvals", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+
+  connector.client.handleMessage({
+    jsonrpc: "2.0",
+    method: "execCommandApproval",
+    id: "approval_legacy",
+    params: { command: "git push" },
+  });
+
+  await connector.resolveApproval("approval_legacy", "decline");
+
+  assert.deepEqual(transport.sent[0], {
+    jsonrpc: "2.0",
+    id: "approval_legacy",
+    result: { decision: "denied" },
+  });
+});
+
+test("desktop connector emits agentMessageDelta on item/updated", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+  await connector.client.connect();
+  const events = [];
+  connector.onEvent = (event) => events.push(event);
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/updated",
+    params: {
+      threadId: "thread_7",
+      item: { type: "agentMessage", id: "item_9", text: "partial answer" },
+    },
+  });
+
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], {
+    type: "agentMessageDelta",
+    threadId: "thread_7",
+    itemId: "item_9",
+    text: "partial answer",
+  });
+});
+
+test("cli connector is explicitly fallback", () => {
+  const connector = new CodexCliConnector();
+
+  assert.deepEqual(connector.getStatus(), {
+    name: "Codex CLI",
+    role: "fallback",
+    state: "available",
+  });
+});

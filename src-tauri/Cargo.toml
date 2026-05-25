@@ -1,0 +1,14 @@
+[package]
+name = "comote"
+version = "0.2.0"
+description = "Comote local remote companion for Codex Desktop."
+authors = ["Comote"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+anyhow = "1.0.98"
+tauri = { version = "2.11.1", features = ["tray-icon"] }
+tauri-plugin-shell = "2.3.1"
