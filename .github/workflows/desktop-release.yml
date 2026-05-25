@@ -7,8 +7,8 @@ on:
       - "v*"
 
 jobs:
-  mac-universal:
-    name: Comote macOS universal DMG
+  mac-arm64:
+    name: Comote macOS arm64 DMG
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -21,8 +21,8 @@ jobs:
       - run: npm run dist:mac
       - uses: actions/upload-artifact@v4
         with:
-          name: Comote-0.2.0-universal.dmg
-          path: release/Comote-0.2.0-universal.dmg
+          name: Comote-arm64-dmg
+          path: release/Comote-*-arm64.dmg
           if-no-files-found: error
 
   windows-x64:
@@ -39,6 +39,6 @@ jobs:
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
-          name: Comote-Setup-0.2.0-x64.exe
-          path: release/Comote-Setup-0.2.0-x64.exe
+          name: Comote-win-x64-setup
+          path: release/Comote-Setup-*-x64.exe
           if-no-files-found: error
