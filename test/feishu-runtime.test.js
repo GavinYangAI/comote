@@ -358,9 +358,17 @@ test("configureDriver while running stops the old driver and starts the new one"
   assert.ok(newCalls.includes("startEventStream"), "new driver's startEventStream must be called");
 });
 
-// ── Issue 4: handleCardAction pick branch error handling ────────────────────
+// ── handleCardAction pick branch: async dispatch error handling ─────────────
+//
+// Feishu's card-action callback has a tight ~3s timeout, so handleCardAction
+// returns a "处理中…" info toast immediately and dispatches the slow work
+// in the background. A failure inside the background dispatch must therefore:
+//   - not crash the runtime,
+//   - be logged via eventLog so the user can inspect it,
+//   - leave the synchronous toast intact (it was already returned).
 
-test("handleCardAction pick branch returns an error toast when sendReplyCard throws", async () => {
+test("handleCardAction pick branch toasts immediately and logs the async error when sendReplyCard throws", async () => {
+  const errorCalls = [];
   const runtime = new FeishuRuntimeService({
     adapter: {
       handleInbound: async () => ({ kind: "text" }),
@@ -375,6 +383,11 @@ test("handleCardAction pick branch returns an error toast when sendReplyCard thr
     },
     outboundQueue: new OutboundQueue(),
     driver: { getStatus: () => ({ state: "configured" }), verifyEvent: () => true },
+    eventLog: {
+      info: () => {},
+      warn: () => {},
+      error: (message, context) => errorCalls.push({ message, context }),
+    },
   });
 
   const result = await runtime.handleCardAction({
@@ -382,8 +395,17 @@ test("handleCardAction pick branch returns an error toast when sendReplyCard thr
     action: { value: { kind: "pick", pickKind: "project", index: "1" } },
   });
 
-  assert.equal(result.toast.type, "error");
-  assert.match(result.toast.content, /card send failed/);
+  assert.equal(result.toast.type, "info");
+  assert.match(result.toast.content, /处理中/);
+
+  // Let the background dispatch run; sendReplyCard should throw and be logged.
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.ok(
+    errorCalls.some((call) => call.context?.error === "card send failed"),
+    "the async dispatch failure must be recorded via eventLog.error",
+  );
 });
 
 test("handleCardAction dispatches a pick directly by pickKind", async () => {
