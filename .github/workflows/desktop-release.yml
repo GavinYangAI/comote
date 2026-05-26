@@ -6,6 +6,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   mac-arm64:
     name: Comote macOS arm64 DMG
@@ -22,14 +25,29 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee /tmp/test.out
-      - name: Surface test tail on failure
+      - name: Post failures as commit comment
         if: failure()
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo '## Test output (tail)' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -200 /tmp/test.out >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          FAILS=$(awk '
+            /^not ok/ {capture=1; print; next}
+            capture && (/^# Subtest:/ || /^ok /) {capture=0}
+            capture {print}
+          ' /tmp/test.out)
+          SUMMARY=$(grep -E "^# (tests|pass|fail|duration_ms)" /tmp/test.out | head -10)
+          BODY="**CI test failure on \`${{ runner.os }}\`** ([run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}))
+
+\`\`\`
+$SUMMARY
+\`\`\`
+
+\`\`\`
+$FAILS
+\`\`\`"
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -f body="$BODY"
       - run: npm run dist:mac
       - uses: actions/upload-artifact@v4
         with:
@@ -52,14 +70,29 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee /tmp/test.out
-      - name: Surface test tail on failure
+      - name: Post failures as commit comment
         if: failure()
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo '## Test output (tail)' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -200 /tmp/test.out >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          FAILS=$(awk '
+            /^not ok/ {capture=1; print; next}
+            capture && (/^# Subtest:/ || /^ok /) {capture=0}
+            capture {print}
+          ' /tmp/test.out)
+          SUMMARY=$(grep -E "^# (tests|pass|fail|duration_ms)" /tmp/test.out | head -10)
+          BODY="**CI test failure on \`${{ runner.os }}\`** ([run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}))
+
+\`\`\`
+$SUMMARY
+\`\`\`
+
+\`\`\`
+$FAILS
+\`\`\`"
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -f body="$BODY"
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
