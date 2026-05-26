@@ -20,33 +20,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Run tests
-        shell: bash
-        run: |
-          set -o pipefail
-          npm test 2>&1 | tee /tmp/build.out
-      - name: Build DMG
-        shell: bash
-        run: |
-          set -o pipefail
-          npm run dist:mac 2>&1 | tee -a /tmp/build.out
+      - run: npm test
+      - run: npm run dist:mac
       - uses: actions/upload-artifact@v4
         with:
           name: Comote-arm64-dmg
           path: release/Comote-*-arm64.dmg
           if-no-files-found: error
-      - name: Post failure tail as commit comment
-        if: failure()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REPO: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
-        run: |
-          TAIL=$(tail -200 /tmp/build.out 2>/dev/null || echo "(no build.out captured)")
-          BODY=$(printf '**CI failure on `%s`** ([run](%s))\n\nTail of build output:\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$TAIL")
-          gh api "repos/$REPO/commits/$COMMIT_SHA/comments" -f body="$BODY"
 
   windows-x64:
     name: Comote Windows x64 installer
@@ -58,30 +38,41 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Run tests
-        shell: bash
-        run: |
-          set -o pipefail
-          npm test 2>&1 | tee /tmp/build.out
-      - name: Build NSIS installer
-        shell: bash
-        run: |
-          set -o pipefail
-          npm run dist:win 2>&1 | tee -a /tmp/build.out
+      - run: npm test
+      - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
           name: Comote-win-x64-setup
           path: release/Comote-Setup-*-x64.exe
           if-no-files-found: error
-      - name: Post failure tail as commit comment
-        if: failure()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REPO: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
-        run: |
-          TAIL=$(tail -200 /tmp/build.out 2>/dev/null || echo "(no build.out captured)")
-          BODY=$(printf '**CI failure on `%s`** ([run](%s))\n\nTail of build output:\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$TAIL")
-          gh api "repos/$REPO/commits/$COMMIT_SHA/comments" -f body="$BODY"
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [mac-arm64, windows-x64]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Comote-arm64-dmg
+          path: release-artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: Comote-win-x64-setup
+          path: release-artifacts
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          name: Comote ${{ github.ref_name }}
+          body: |
+            Comote ${{ github.ref_name }}
+
+            Downloads:
+            - **macOS (Apple Silicon)** — `Comote-*-arm64.dmg`
+            - **Windows x64** — `Comote-Setup-*-x64.exe`
+
+            See [README](https://github.com/GavinYangAI/comote#readme) for installation and setup.
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
