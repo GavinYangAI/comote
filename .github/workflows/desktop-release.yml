@@ -24,8 +24,18 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          npm test 2>&1 | tee /tmp/test.out
-      - name: Post failures as commit comment
+          npm test 2>&1 | tee /tmp/build.out
+      - name: Build DMG
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run dist:mac 2>&1 | tee -a /tmp/build.out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Comote-arm64-dmg
+          path: release/Comote-*-arm64.dmg
+          if-no-files-found: error
+      - name: Post failure tail as commit comment
         if: failure()
         shell: bash
         env:
@@ -34,16 +44,9 @@ jobs:
           REPO: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          FAILS=$(awk '/^not ok/ {capture=1; print; next} capture && (/^# Subtest:/ || /^ok /) {capture=0} capture {print}' /tmp/test.out)
-          SUMMARY=$(grep -E "^# (tests|pass|fail|duration_ms)" /tmp/test.out | head -10)
-          BODY=$(printf '**CI test failure on `%s`** ([run](%s))\n\n```\n%s\n```\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$SUMMARY" "$FAILS")
+          TAIL=$(tail -200 /tmp/build.out 2>/dev/null || echo "(no build.out captured)")
+          BODY=$(printf '**CI failure on `%s`** ([run](%s))\n\nTail of build output:\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$TAIL")
           gh api "repos/$REPO/commits/$COMMIT_SHA/comments" -f body="$BODY"
-      - run: npm run dist:mac
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Comote-arm64-dmg
-          path: release/Comote-*-arm64.dmg
-          if-no-files-found: error
 
   windows-x64:
     name: Comote Windows x64 installer
@@ -59,8 +62,18 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          npm test 2>&1 | tee /tmp/test.out
-      - name: Post failures as commit comment
+          npm test 2>&1 | tee /tmp/build.out
+      - name: Build NSIS installer
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run dist:win 2>&1 | tee -a /tmp/build.out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Comote-win-x64-setup
+          path: release/Comote-Setup-*-x64.exe
+          if-no-files-found: error
+      - name: Post failure tail as commit comment
         if: failure()
         shell: bash
         env:
@@ -69,13 +82,6 @@ jobs:
           REPO: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          FAILS=$(awk '/^not ok/ {capture=1; print; next} capture && (/^# Subtest:/ || /^ok /) {capture=0} capture {print}' /tmp/test.out)
-          SUMMARY=$(grep -E "^# (tests|pass|fail|duration_ms)" /tmp/test.out | head -10)
-          BODY=$(printf '**CI test failure on `%s`** ([run](%s))\n\n```\n%s\n```\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$SUMMARY" "$FAILS")
+          TAIL=$(tail -200 /tmp/build.out 2>/dev/null || echo "(no build.out captured)")
+          BODY=$(printf '**CI failure on `%s`** ([run](%s))\n\nTail of build output:\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$TAIL")
           gh api "repos/$REPO/commits/$COMMIT_SHA/comments" -f body="$BODY"
-      - run: npm run dist:win
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Comote-win-x64-setup
-          path: release/Comote-Setup-*-x64.exe
-          if-no-files-found: error
