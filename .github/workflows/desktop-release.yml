@@ -30,24 +30,14 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          FAILS=$(awk '
-            /^not ok/ {capture=1; print; next}
-            capture && (/^# Subtest:/ || /^ok /) {capture=0}
-            capture {print}
-          ' /tmp/test.out)
+          FAILS=$(awk '/^not ok/ {capture=1; print; next} capture && (/^# Subtest:/ || /^ok /) {capture=0} capture {print}' /tmp/test.out)
           SUMMARY=$(grep -E "^# (tests|pass|fail|duration_ms)" /tmp/test.out | head -10)
-          BODY="**CI test failure on \`${{ runner.os }}\`** ([run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}))
-
-\`\`\`
-$SUMMARY
-\`\`\`
-
-\`\`\`
-$FAILS
-\`\`\`"
-          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-            -f body="$BODY"
+          BODY=$(printf '**CI test failure on `%s`** ([run](%s))\n\n```\n%s\n```\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$SUMMARY" "$FAILS")
+          gh api "repos/$REPO/commits/$COMMIT_SHA/comments" -f body="$BODY"
       - run: npm run dist:mac
       - uses: actions/upload-artifact@v4
         with:
@@ -75,24 +65,14 @@ $FAILS
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          FAILS=$(awk '
-            /^not ok/ {capture=1; print; next}
-            capture && (/^# Subtest:/ || /^ok /) {capture=0}
-            capture {print}
-          ' /tmp/test.out)
+          FAILS=$(awk '/^not ok/ {capture=1; print; next} capture && (/^# Subtest:/ || /^ok /) {capture=0} capture {print}' /tmp/test.out)
           SUMMARY=$(grep -E "^# (tests|pass|fail|duration_ms)" /tmp/test.out | head -10)
-          BODY="**CI test failure on \`${{ runner.os }}\`** ([run ${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}))
-
-\`\`\`
-$SUMMARY
-\`\`\`
-
-\`\`\`
-$FAILS
-\`\`\`"
-          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-            -f body="$BODY"
+          BODY=$(printf '**CI test failure on `%s`** ([run](%s))\n\n```\n%s\n```\n\n```\n%s\n```\n' "$RUNNER_OS" "$RUN_URL" "$SUMMARY" "$FAILS")
+          gh api "repos/$REPO/commits/$COMMIT_SHA/comments" -f body="$BODY"
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
