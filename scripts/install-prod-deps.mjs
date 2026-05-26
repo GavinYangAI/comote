@@ -19,11 +19,13 @@ if (await fileExists(lockfile)) {
   await copyFile(lockfile, join(stageDir, "package-lock.json"));
 }
 
+// shell: true is required so Node spawns through cmd/sh — on Windows that lets
+// us run npm.cmd; without it Node 20+ rejects .cmd/.bat spawn for CVE-2024-27980.
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const { stdout } = await execFileAsync(
   npmCommand,
   ["install", "--omit=dev", "--no-audit", "--no-fund"],
-  { cwd: stageDir },
+  { cwd: stageDir, shell: true },
 );
 process.stdout.write(stdout);
 
