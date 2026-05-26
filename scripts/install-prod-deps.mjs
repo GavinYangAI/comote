@@ -19,8 +19,9 @@ if (await fileExists(lockfile)) {
   await copyFile(lockfile, join(stageDir, "package-lock.json"));
 }
 
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const { stdout } = await execFileAsync(
-  "npm",
+  npmCommand,
   ["install", "--omit=dev", "--no-audit", "--no-fund"],
   { cwd: stageDir },
 );
