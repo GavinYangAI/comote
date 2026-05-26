@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -72,7 +72,8 @@ test("desktop connector initializes through app-server JSON-RPC", async () => {
       clientInfo: {
         name: "comote",
         title: "Comote",
-        version: "0.2.0",
+        // Connector reads from package.json; assert against whatever is on disk now.
+        version: JSON.parse(readFileSync("package.json", "utf8")).version,
       },
       capabilities: {
         experimentalApi: true,

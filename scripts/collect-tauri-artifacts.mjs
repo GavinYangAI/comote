@@ -1,16 +1,17 @@
-import { copyFile, mkdir, readdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 const mode = process.argv[2];
 const releaseDir = join(process.cwd(), "release");
+const pkg = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
 await mkdir(releaseDir, { recursive: true });
 
 if (mode === "mac") {
   const source = await findArtifact(join(process.cwd(), "src-tauri", "target"), ".dmg");
-  await copyFile(source, join(releaseDir, "Comote-0.2.0-universal.dmg"));
+  await copyFile(source, join(releaseDir, `Comote-${pkg.version}-universal.dmg`));
 } else if (mode === "win") {
   const source = await findArtifact(join(process.cwd(), "src-tauri", "target"), ".exe");
-  await copyFile(source, join(releaseDir, "Comote-Setup-0.2.0-x64.exe"));
+  await copyFile(source, join(releaseDir, `Comote-Setup-${pkg.version}-x64.exe`));
 } else {
   throw new Error("Usage: node scripts/collect-tauri-artifacts.mjs <mac|win>");
 }

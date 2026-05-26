@@ -1,7 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 import { JsonRpcClient, StdioTransport } from "./json-rpc.js";
+
+const COMOTE_VERSION = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "package.json"), "utf8"),
+).version;
 
 export class CodexDesktopConnector {
   constructor({
@@ -229,7 +235,7 @@ export class CodexDesktopConnector {
         clientInfo: {
           name: "comote",
           title: "Comote",
-          version: "0.2.0",
+          version: COMOTE_VERSION,
         },
         capabilities: {
           experimentalApi: true,

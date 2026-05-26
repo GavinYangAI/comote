@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, cp } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const releaseDir = join(process.cwd(), "release");
+const pkg = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
 const appPath = join(
   process.cwd(),
   "src-tauri",
@@ -16,7 +17,7 @@ const appPath = join(
   "macos",
   "Comote.app",
 );
-const dmgPath = join(releaseDir, "Comote-0.2.0-arm64.dmg");
+const dmgPath = join(releaseDir, `Comote-${pkg.version}-arm64.dmg`);
 
 await mkdir(releaseDir, { recursive: true });
 

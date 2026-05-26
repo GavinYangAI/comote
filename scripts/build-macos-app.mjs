@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { makeIcns, makeIconPng } from "./icon-utils.mjs";
 
 const execFileAsync = promisify(execFile);
+const pkg = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
+const version = pkg.version;
 
 const appRoot = join(process.cwd(), "dist", "Comote.app");
 const contents = join(appRoot, "Contents");
@@ -44,7 +46,7 @@ await writeFile(
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.2.0</string>
+  <string>${version}</string>
   <key>CFBundleVersion</key>
   <string>2</string>
   <key>LSMinimumSystemVersion</key>
