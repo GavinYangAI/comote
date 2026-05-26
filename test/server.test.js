@@ -195,7 +195,7 @@ test("channel message API routes authorized phone commands", async () => {
 });
 
 test("wechat inbound API routes authorized WeChat payloads through adapter", async () => {
-  const app = createServer(createStateWithProject());
+  const app = createServer(createStateWithProject("/home/test/projects/comote-fixture"));
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
 
@@ -226,7 +226,7 @@ test("wechat inbound API routes authorized WeChat payloads through adapter", asy
 
   assert.equal(response.status, 200);
   assert.equal(reply.kind, "text");
-  assert.match(reply.text, /1\. codex_wechat/);
+  assert.match(reply.text, /1\. comote-fixture/);
   assert.equal(status.channels.wechat, "adapter_ready");
 });
 
@@ -350,7 +350,7 @@ test("serveStatic returns 404 for a missing static file", async () => {
 });
 
 test("wechat outbound queue lists replies and supports ack", async () => {
-  const app = createServer(createStateWithProject());
+  const app = createServer(createStateWithProject("/home/test/projects/comote-fixture"));
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
 
@@ -383,7 +383,7 @@ test("wechat outbound queue lists replies and supports ack", async () => {
 
   assert.equal(outbound.length, 1);
   assert.equal(outbound[0].channel, "wechat");
-  assert.match(outbound[0].text, /codex_wechat/);
+  assert.match(outbound[0].text, /comote-fixture/);
   assert.equal(ackResponse.status, 204);
   assert.deepEqual(afterAck, []);
 });
