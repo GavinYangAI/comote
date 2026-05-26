@@ -48,6 +48,10 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             高级设置
           </a>
+          <a class="nav-item" href="#about">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            关于
+          </a>
         </nav>
         <div class="sidebar-foot" id="sidebarVersion">版本 · 检查中</div>
       </aside>
@@ -94,9 +98,12 @@
         </section>
 
         <section id="connectPhone" class="section-block">
-          <div class="section-heading">
-            <h2>连接手机</h2>
-            <p>选择一个手机通道，绑定后即可从手机控制本机 Codex。<strong>推荐用飞书</strong> —— 接口稳定、支持卡片交互，体验更好。</p>
+          <div class="section-heading inline-heading">
+            <div>
+              <h2>连接手机</h2>
+              <p>选择一个手机通道，绑定后即可从手机控制本机 Codex。<strong>推荐用飞书</strong> —— 接口稳定、支持卡片交互，体验更好。</p>
+            </div>
+            <button id="refreshConnect" class="secondary-button" type="button">刷新</button>
           </div>
 
           <div class="channel-grid">
@@ -199,9 +206,12 @@
         </section>
 
         <section id="users" class="section-block">
-          <div class="section-heading">
-            <h2>授权用户</h2>
-            <p>只有在本机确认过的微信或飞书用户可以控制 Comote。</p>
+          <div class="section-heading inline-heading">
+            <div>
+              <h2>授权用户</h2>
+              <p>只有在本机确认过的微信或飞书用户可以控制 Comote。</p>
+            </div>
+            <button id="refreshUsers" class="secondary-button" type="button">刷新</button>
           </div>
 
           <div class="user-grid">
@@ -273,6 +283,35 @@
             </article>
           </section>
         </details>
+
+        <section id="about" class="section-block">
+          <div class="section-heading">
+            <h2>关于 Comote</h2>
+            <p>手机上的 Codex 遥控器。本地运行，端到端私密，开源 MIT。</p>
+          </div>
+          <div class="user-grid">
+            <article class="panel">
+              <h3>版本</h3>
+              <dl id="aboutVersion" class="kv">
+                <dt>当前版本</dt><dd id="aboutCurrentVersion">加载中…</dd>
+                <dt>最新发布</dt><dd id="aboutLatestVersion">检查中…</dd>
+              </dl>
+              <div class="actions">
+                <button id="aboutCheckUpdate" class="secondary-button" type="button">检查更新</button>
+                <a id="aboutReleasesLink" class="secondary-button" href="https://github.com/GavinYangAI/comote/releases" target="_blank" rel="noopener">查看所有版本</a>
+              </div>
+            </article>
+            <article class="panel">
+              <h3>项目</h3>
+              <dl class="kv">
+                <dt>仓库</dt><dd><a href="https://github.com/GavinYangAI/comote" target="_blank" rel="noopener">GavinYangAI/comote</a></dd>
+                <dt>作者</dt><dd><a href="https://github.com/GavinYangAI" target="_blank" rel="noopener">@GavinYangAI</a></dd>
+                <dt>协议</dt><dd>MIT License</dd>
+                <dt>报 Bug</dt><dd><a href="https://github.com/GavinYangAI/comote/issues" target="_blank" rel="noopener">提交 Issue</a></dd>
+              </dl>
+            </article>
+          </div>
+        </section>
       </main>
     </div>
 

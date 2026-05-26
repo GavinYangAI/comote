@@ -250,15 +250,12 @@ function renderWechat(statusResult, configResult, runtimeResult) {
     .join("");
 
   const wechatBindButton = document.querySelector("#startWechatLogin");
-  if (wechatConfig.loggedIn) {
-    clearWechatLoginPolling();
-    activeWechatLoginId = null;
-    activeWechatQrUrl = null;
-  }
-  wechatBindButton.textContent = wechatConfig.loggedIn
-    ? "重新绑定微信"
-    : activeWechatLoginId
-      ? "刷新二维码"
+  // While a rebind is in flight (activeWechatLoginId set), keep the QR visible
+  // even though the daemon still reports the old loggedIn=true config.
+  wechatBindButton.textContent = activeWechatLoginId
+    ? "刷新二维码"
+    : wechatConfig.loggedIn
+      ? "重新绑定微信"
       : "绑定微信";
   if (!activeWechatLoginId) {
     setWechatLoginView(
@@ -1008,6 +1005,7 @@ const NAV_LABELS = {
   conversation: "对话记录",
   logs: "运行日志",
   advanced: "高级设置",
+  about: "关于 Comote",
 };
 
 function setupNavigation() {
@@ -1240,7 +1238,65 @@ async function refreshVersionStatus() {
       banner.hidden = true;
     }
   }
+  const aboutCurrent = document.querySelector("#aboutCurrentVersion");
+  const aboutLatest = document.querySelector("#aboutLatestVersion");
+  const aboutLink = document.querySelector("#aboutReleasesLink");
+  if (aboutCurrent) aboutCurrent.textContent = current ?? "未知";
+  if (aboutLatest) {
+    if (data?.latest) {
+      aboutLatest.textContent = data.hasUpdate ? `${data.latest}（有新版可下载）` : `${data.latest}（已是最新）`;
+    } else if (data?.error) {
+      aboutLatest.textContent = `检查失败：${data.error}`;
+    } else {
+      aboutLatest.textContent = "暂无发布";
+    }
+  }
+  if (aboutLink && data?.releaseUrl) {
+    aboutLink.href = data.releaseUrl;
+  }
 }
+
+document.querySelector("#refreshConnect")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "刷新中…";
+  try {
+    await render();
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
+
+document.querySelector("#refreshUsers")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "刷新中…";
+  try {
+    await render();
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
+
+document.querySelector("#aboutCheckUpdate")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "检查中…";
+  try {
+    await getJson("/api/version/check", { method: "POST" });
+    await refreshVersionStatus();
+  } catch (error) {
+    window.alert(`检查更新失败：${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
 
 init().catch((error) => {
   setBridgeStatus("出错");
