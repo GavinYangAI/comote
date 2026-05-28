@@ -10,7 +10,7 @@ tauri-build = { version = "2.5.1", features = [] }
 
 [dependencies]
 anyhow = "1.0.98"
-tauri = { version = "2.11.1", features = ["tray-icon"] }
+tauri = { version = "2.11.1", features = ["tray-icon", "webview-data-url"] }
 tauri-plugin-shell = "2.3.1"
 tauri-plugin-opener = "2.5.4"
 

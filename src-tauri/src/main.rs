@@ -130,8 +130,7 @@ fn main() {
             // page and let the user retry via the tray "重启后台服务" item.
             let startup = match existing_service {
                 ExistingService::Reusable => Ok(None),
-                _ => start_comote_sidecar(app.handle(), port)
-                    .and_then(|child| wait_for_service(port).map(|_| Some(child))),
+                _ => start_comote_sidecar_ready(app.handle(), port).map(Some),
             };
 
             match startup {
@@ -409,8 +408,7 @@ fn stop_comote_sidecar(app: &AppHandle) {
 // daemon. Returns Err (never panics) so the tray handler can surface failure.
 fn restart_comote_sidecar(app: &AppHandle, port: u16) -> Result<(), String> {
     stop_comote_sidecar(app);
-    let child = start_comote_sidecar(app, port).map_err(|error| error.to_string())?;
-    wait_for_service(port).map_err(|error| error.to_string())?;
+    let child = start_comote_sidecar_ready(app, port).map_err(|error| error.to_string())?;
     if let Some(state) = app.try_state::<ComoteSidecar>() {
         if let Ok(mut slot) = state.0.lock() {
             *slot = Some(child);
@@ -431,6 +429,23 @@ fn release_comote_sidecar(app: &AppHandle) {
     if let Some(state) = app.try_state::<ComoteSidecar>() {
         if let Ok(mut child) = state.0.lock() {
             let _ = child.take();
+        }
+    }
+}
+
+fn start_comote_sidecar_ready(app: &AppHandle, port: u16) -> tauri::Result<ComoteChild> {
+    let child = start_comote_sidecar(app, port)?;
+    match wait_for_service(port) {
+        Ok(()) => Ok(child),
+        Err(error) => {
+            child.kill();
+            let fallback = start_manual_comote_node_from_app(app, port).map_err(|fallback_error| {
+                tauri::Error::Anyhow(anyhow::anyhow!(
+                    "bundled comote-node started but did not listen on 127.0.0.1:{port}: {error}; manual comote-node.exe fallback failed: {fallback_error}"
+                ))
+            })?;
+            wait_for_service(port)?;
+            Ok(ComoteChild::System(fallback))
         }
     }
 }
@@ -466,6 +481,25 @@ fn start_comote_sidecar(app: &AppHandle, port: u16) -> tauri::Result<ComoteChild
                 ))
             }),
     }
+}
+
+fn start_manual_comote_node_from_app(app: &AppHandle, port: u16) -> std::io::Result<SystemChild> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error.to_string()))?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error.to_string()))?;
+    let server_entry = resource_dir
+        .join("comote-server")
+        .join("src")
+        .join("server")
+        .join("index.js");
+    let state_path = app_data_dir.join("state.json");
+
+    start_manual_comote_node(&resource_dir, server_entry, port, state_path)
 }
 
 fn start_manual_comote_node(
