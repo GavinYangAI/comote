@@ -76,6 +76,7 @@ impl ComoteChild {
 }
 
 const COMOTE_VERSION: &str = env!("CARGO_PKG_VERSION");
+const COMOTE_PORT: u16 = 16208;
 const DEFAULT_SHOW_DOCK_ICON: bool = true;
 const DEFAULT_KEEP_DAEMON_ALIVE: bool = false;
 const DESKTOP_SETTINGS_FILE: &str = "desktop-settings.json";
@@ -99,15 +100,12 @@ fn main() {
             get_platform
         ])
         .setup(|app| {
-            let port = 16208;
+            let port = COMOTE_PORT;
             let app_data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&app_data_dir)?;
             let show_dock_icon = load_show_dock_icon_from_dir(&app_data_dir);
             let existing_service = inspect_existing_service(port, COMOTE_VERSION);
-            let child = match existing_service {
-                ExistingService::None => Some(start_comote_sidecar(app, port)?),
-                ExistingService::Reusable | ExistingService::Mismatched(_) => None,
-            };
+
             if let ExistingService::Mismatched(found_version) = &existing_service {
                 app.manage(ComoteSidecar(Mutex::new(None)));
                 build_main_window(
@@ -126,18 +124,42 @@ fn main() {
                 install_tray(app, show_dock_icon)?;
                 return Ok(());
             };
-            if child.is_some() {
-                wait_for_service(port)?;
-            }
-            app.manage(ComoteSidecar(Mutex::new(child)));
 
-            let window = build_main_window(
-                app,
-                WebviewUrl::External(format!("http://127.0.0.1:{port}").parse().unwrap()),
-                show_dock_icon,
-            )?;
-            if show_dock_icon {
-                let _ = window.set_focus();
+            // Start the bundled daemon (unless a compatible one is already up).
+            // A failure here must NOT panic the app: show a recoverable error
+            // page and let the user retry via the tray "重启后台服务" item.
+            let startup = match existing_service {
+                ExistingService::Reusable => Ok(None),
+                _ => start_comote_sidecar(app.handle(), port)
+                    .and_then(|child| wait_for_service(port).map(|_| Some(child))),
+            };
+
+            match startup {
+                Ok(child) => {
+                    app.manage(ComoteSidecar(Mutex::new(child)));
+                    let window = build_main_window(
+                        app,
+                        WebviewUrl::External(
+                            format!("http://127.0.0.1:{port}").parse().unwrap(),
+                        ),
+                        show_dock_icon,
+                    )?;
+                    if show_dock_icon {
+                        let _ = window.set_focus();
+                    }
+                }
+                Err(error) => {
+                    app.manage(ComoteSidecar(Mutex::new(None)));
+                    build_main_window(
+                        app,
+                        WebviewUrl::External(
+                            data_url(&sidecar_failed_html(&error.to_string(), port))
+                                .parse()
+                                .unwrap(),
+                        ),
+                        true,
+                    )?;
+                }
             }
 
             install_tray(app, show_dock_icon)?;
@@ -262,8 +284,9 @@ fn install_tray(app: &mut tauri::App, show_dock_icon: bool) -> tauri::Result<()>
     // would stop the local daemon and break the phone bridge — exactly
     // when the user is away from the Mac and needs it most.
     let show = MenuItem::with_id(app, "show", "打开 Comote", true, None::<&str>)?;
+    let restart = MenuItem::with_id(app, "restart", "重启后台服务", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 Comote", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &restart, &quit])?;
     TrayIconBuilder::new()
         .icon(app.default_window_icon().expect("app icon").clone())
         .tooltip("Comote")
@@ -271,6 +294,10 @@ fn install_tray(app: &mut tauri::App, show_dock_icon: bool) -> tauri::Result<()>
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main_window(app),
+            "restart" => match restart_comote_sidecar(app, COMOTE_PORT) {
+                Ok(()) => show_main_window(app),
+                Err(error) => eprintln!("failed to restart comote daemon: {error}"),
+            },
             "quit" => app.exit(0),
             _ => {}
         })
@@ -377,6 +404,27 @@ fn stop_comote_sidecar(app: &AppHandle) {
     }
 }
 
+// Stops any running daemon, starts a fresh one, waits for it to listen, and
+// stores the new handle. On success the main window is pointed back at the live
+// daemon. Returns Err (never panics) so the tray handler can surface failure.
+fn restart_comote_sidecar(app: &AppHandle, port: u16) -> Result<(), String> {
+    stop_comote_sidecar(app);
+    let child = start_comote_sidecar(app, port).map_err(|error| error.to_string())?;
+    wait_for_service(port).map_err(|error| error.to_string())?;
+    if let Some(state) = app.try_state::<ComoteSidecar>() {
+        if let Ok(mut slot) = state.0.lock() {
+            *slot = Some(child);
+        }
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        // The window may be showing the error page or a dead URL; navigate it
+        // back to the now-live daemon.
+        let url = format!("http://127.0.0.1:{port}");
+        let _ = window.eval(format!("window.location.replace('{url}')"));
+    }
+    Ok(())
+}
+
 // Detaches the daemon without killing it: take the handle so its Drop does not
 // terminate the child, leaving it running after the app quits.
 fn release_comote_sidecar(app: &AppHandle) {
@@ -387,7 +435,7 @@ fn release_comote_sidecar(app: &AppHandle) {
     }
 }
 
-fn start_comote_sidecar(app: &tauri::App, port: u16) -> tauri::Result<ComoteChild> {
+fn start_comote_sidecar(app: &AppHandle, port: u16) -> tauri::Result<ComoteChild> {
     let resource_dir = app.path().resource_dir()?;
     let app_data_dir = app.path().app_data_dir()?;
     fs::create_dir_all(&app_data_dir)?;
@@ -552,6 +600,33 @@ code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}
     )
 }
 
+fn sidecar_failed_html(error: &str, port: u16) -> String {
+    let safe_error = html_escape(error);
+    format!(
+        r#"<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<style>
+body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#fbfaf9;color:#1f2430;font:15px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}}
+main{{width:min(560px,calc(100vw - 48px));padding:30px;border:1px solid #e5e3de;border-radius:16px;background:white;box-shadow:0 10px 30px rgba(0,0,0,.06)}}
+h1{{margin:0 0 10px;font-size:24px;line-height:1.25}}
+p{{margin:8px 0;color:#525a68;line-height:1.6}}
+pre{{margin:14px 0;padding:12px;background:#faf9f8;border:1px solid #eeede9;border-radius:10px;white-space:pre-wrap;word-break:break-word;color:#9a3b3b;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}}
+</style>
+<main>
+  <h1>后台服务启动失败</h1>
+  <p>Comote 的本地后台服务（<code>127.0.0.1:{port}</code>）未能启动，所以设置页暂时无法打开。</p>
+  <p>请点击菜单栏 / 托盘里的 <strong>「重启后台服务」</strong> 重试。如果反复失败，请检查端口是否被占用或查看日志。</p>
+  <pre>{safe_error}</pre>
+</main></html>"#
+    )
+}
+
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 fn data_url(html: &str) -> String {
     let mut encoded = String::with_capacity(html.len());
     for byte in html.bytes() {
@@ -646,5 +721,18 @@ mod tests {
         let body = r#"{"showDockIcon":false,"keepDaemonAlive":true}"#;
         assert_eq!(show_dock_icon_from_settings_body(body), false);
         assert_eq!(keep_daemon_alive_from_settings_body(body), true);
+    }
+
+    #[test]
+    fn sidecar_failed_html_shows_port_and_restart_hint() {
+        let html = sidecar_failed_html("spawn EPERM", 16208);
+        assert!(html.contains("127.0.0.1:16208"));
+        assert!(html.contains("重启后台服务"));
+        assert!(html.contains("spawn EPERM"));
+    }
+
+    #[test]
+    fn html_escape_neutralizes_markup() {
+        assert_eq!(html_escape("a<b>&c"), "a&lt;b&gt;&amp;c");
     }
 }
