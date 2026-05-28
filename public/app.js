@@ -1,6 +1,7 @@
 import { qrDataUrl } from "./qr-code.js";
 
 const REFRESH_MS = 5000;
+const RELEASES_URL = "https://github.com/GavinYangAI/Comote/releases";
 
 async function getJson(path, options = {}) {
   const token = localStorage.getItem("comoteApiToken");
@@ -36,6 +37,30 @@ let rendering = false;
 let logsOffset = 0;
 let conversationThreads = [];
 let conversationShown = 0;
+
+function getTauriInvoke() {
+  return globalThis.__TAURI__?.core?.invoke ?? null;
+}
+
+// Inside the Tauri webview, <a target="_blank"> to an external site is a no-op,
+// so route outbound http(s) links through the system browser. Outside Tauri
+// (e.g. the phone hitting the daemon page directly) we leave links untouched.
+document.addEventListener("click", (event) => {
+  const anchor = event.target.closest?.("a[href]");
+  if (!anchor) {
+    return;
+  }
+  const href = anchor.getAttribute("href") ?? "";
+  if (!/^https?:\/\//i.test(href) || href.startsWith("http://127.0.0.1:16208")) {
+    return;
+  }
+  const invoke = getTauriInvoke();
+  if (!invoke) {
+    return;
+  }
+  event.preventDefault();
+  invoke("open_external", { url: href }).catch(() => {});
+});
 
 async function render() {
   if (rendering) {
@@ -187,11 +212,22 @@ function renderIdentities(result) {
   const identities = result.value;
   target.innerHTML =
     identities.length === 0
-      ? `<li><strong>暂无已授权用户</strong><div class="meta">绑定微信或飞书后，在这里确认可控制 Comote 的账号。</div></li>`
+      ? `<li class="empty-state-row"><strong>暂无已授权用户</strong><div class="meta">绑定微信或飞书后，在这里确认可控制 Comote 的账号。</div></li>`
       : identities
           .map(
             (identity) =>
-              `<li class="list-row"><span><strong>${escapeHtml(identity.displayName)}</strong><div class="meta">${channelName(identity.channel)} · ${escapeHtml(identity.stableId)} · ${roleName(identity.role)}</div></span><button class="secondary-button" data-remove-identity="${escapeAttr(identity.channel)}|${escapeAttr(identity.stableId)}">移除</button></li>`,
+              `<li class="list-row identity-row">
+                <span class="identity-row-main">
+                  <span class="identity-row-title">
+                    <strong>${escapeHtml(identity.displayName)}</strong>
+                    <span class="identity-channel">${channelName(identity.channel)} · ${roleName(identity.role)}</span>
+                  </span>
+                  <span class="identity-stable-id">${escapeHtml(identity.stableId)}</span>
+                </span>
+                <span class="identity-row-action">
+                  <button class="secondary-button" data-remove-identity="${escapeAttr(identity.channel)}|${escapeAttr(identity.stableId)}">移除</button>
+                </span>
+              </li>`,
           )
           .join("");
 }
@@ -205,11 +241,22 @@ function renderCandidates(result) {
   const candidates = result.value;
   target.innerHTML =
     candidates.length === 0
-      ? `<li><strong>暂无待确认用户</strong><div class="meta">手机端首次发消息后，会出现在这里等待本机确认。</div></li>`
+      ? `<li class="empty-state-row"><strong>暂无待确认用户</strong><div class="meta">手机端首次发消息后，会出现在这里等待本机确认。</div></li>`
       : candidates
           .map(
             (identity) =>
-              `<li class="list-row"><span><strong>${escapeHtml(identity.displayName)}</strong><div class="meta">${channelName(identity.channel)} · ${escapeHtml(identity.stableId)}</div></span><button data-confirm-identity="${escapeAttr(identity.channel)}|${escapeAttr(identity.stableId)}|${escapeAttr(identity.displayName)}">确认</button></li>`,
+              `<li class="list-row identity-row">
+                <span class="identity-row-main">
+                  <span class="identity-row-title">
+                    <strong>${escapeHtml(identity.displayName)}</strong>
+                    <span class="identity-channel">${channelName(identity.channel)}</span>
+                  </span>
+                  <span class="identity-stable-id">${escapeHtml(identity.stableId)}</span>
+                </span>
+                <span class="identity-row-action">
+                  <button data-confirm-identity="${escapeAttr(identity.channel)}|${escapeAttr(identity.stableId)}|${escapeAttr(identity.displayName)}">确认</button>
+                </span>
+              </li>`,
           )
           .join("");
 }
@@ -273,15 +320,16 @@ function renderWechat(statusResult, configResult, runtimeResult) {
 function renderFeishu(statusResult, configResult, runtimeResult) {
   const feishuConfig = configResult.value ?? {};
   const feishuRuntime = runtimeResult.value ?? { state: "not_configured" };
+  const needsRelogin = Boolean(feishuRuntime.needsRelogin);
   const feishuReady = feishuRuntime.state === "running" || feishuRuntime.state === "configured";
   const badge = document.querySelector("#feishuBadge");
-  badge.textContent = humanFeishuBadge(feishuRuntime.state);
-  badge.className = `badge${feishuReady ? " success" : " warning"}`;
+  badge.textContent = needsRelogin ? "需重新绑定" : humanFeishuBadge(feishuRuntime.state);
+  badge.className = `badge${feishuReady && !needsRelogin ? " success" : " warning"}`;
   document.querySelector("#feishuStatus").innerHTML = [
-    ["状态", humanFeishuState(feishuRuntime.state)],
-    ["连接", feishuRuntime.state === "running" ? "WebSocket 监听中" : feishuConfig.configured ? "已配置" : "待扫码"],
+    ["状态", needsRelogin ? "登录已失效" : humanFeishuState(feishuRuntime.state)],
+    ["连接", needsRelogin ? "请重新绑定飞书" : feishuRuntime.state === "running" ? "WebSocket 监听中" : feishuConfig.configured ? "已配置" : "待扫码"],
     ["允许账号", feishuConfig.linkedUserName ?? feishuConfig.linkedUserId ?? "等待确认"],
-    ["应用", feishuConfig.appId ?? "未设置"],
+    ["应用", needsRelogin ? feishuRuntime.lastError ?? "凭证不可用" : feishuConfig.appId ?? "未设置"],
   ]
     .map(([label, value]) => `<dt>${label}</dt><dd>${escapeHtml(value)}</dd>`)
     .join("");
@@ -593,6 +641,116 @@ document.querySelector("#startWechatLogin").addEventListener("click", async (eve
 
 document.querySelector("#startFeishuLogin").addEventListener("click", async (event) => {
   await startFeishuBinding(event.currentTarget);
+});
+
+async function loadDockIconPreference() {
+  const showDockIconToggle = document.querySelector("#showDockIcon");
+  const status = document.querySelector("#dockIconSettingStatus");
+  if (!showDockIconToggle || !status) {
+    return;
+  }
+  const invoke = getTauriInvoke();
+  if (!invoke) {
+    showDockIconToggle.disabled = true;
+    status.textContent = "仅 Comote 桌面端可用";
+    return;
+  }
+  // The Dock icon is a macOS-only concept; hide the whole row elsewhere
+  // (Windows has no Dock). The keep-alive toggle in the same card stays.
+  try {
+    const platform = await invoke("get_platform");
+    if (platform !== "macos") {
+      showDockIconToggle.closest("label")?.setAttribute("hidden", "");
+      return;
+    }
+  } catch {
+    // If the platform probe fails, fall through and show the toggle as before.
+  }
+  try {
+    const showDockIcon = await invoke("get_show_dock_icon");
+    showDockIconToggle.checked = Boolean(showDockIcon);
+    status.textContent = showDockIconToggle.checked ? "开启后 Dock 中一直显示 Comote。" : "关闭后只保留托盘入口。";
+  } catch (error) {
+    showDockIconToggle.disabled = true;
+    status.textContent = `读取失败：${error}`;
+  }
+}
+
+document.querySelector("#showDockIcon")?.addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const status = document.querySelector("#dockIconSettingStatus");
+  const invoke = getTauriInvoke();
+  if (!invoke) {
+    toggle.disabled = true;
+    if (status) status.textContent = "仅 Comote 桌面端可用";
+    return;
+  }
+  const nextValue = toggle.checked;
+  toggle.disabled = true;
+  if (status) status.textContent = "正在保存…";
+  try {
+    const saved = await invoke("set_show_dock_icon", { show: nextValue });
+    toggle.checked = Boolean(saved);
+    if (status) {
+      status.textContent = toggle.checked
+        ? "开启后 Dock 中一直显示 Comote。"
+        : "已隐藏 Dock 图标，可从托盘重新打开；如仍显示，重启 Comote 后完全生效。";
+    }
+  } catch (error) {
+    toggle.checked = !nextValue;
+    if (status) status.textContent = `保存失败：${error}`;
+  } finally {
+    toggle.disabled = false;
+  }
+});
+
+const KEEP_DAEMON_ALIVE_ON = "退出后台服务仍保持在线，手机可继续连接。";
+const KEEP_DAEMON_ALIVE_OFF = "退出 Comote 时一并优雅关闭后台服务。";
+
+async function loadKeepDaemonAlivePreference() {
+  const toggle = document.querySelector("#keepDaemonAlive");
+  const status = document.querySelector("#keepDaemonAliveStatus");
+  if (!toggle || !status) {
+    return;
+  }
+  const invoke = getTauriInvoke();
+  if (!invoke) {
+    toggle.disabled = true;
+    status.textContent = "仅 Comote 桌面端可用";
+    return;
+  }
+  try {
+    const enabled = await invoke("get_keep_daemon_alive");
+    toggle.checked = Boolean(enabled);
+    status.textContent = toggle.checked ? KEEP_DAEMON_ALIVE_ON : KEEP_DAEMON_ALIVE_OFF;
+  } catch (error) {
+    toggle.disabled = true;
+    status.textContent = `读取失败：${error}`;
+  }
+}
+
+document.querySelector("#keepDaemonAlive")?.addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const status = document.querySelector("#keepDaemonAliveStatus");
+  const invoke = getTauriInvoke();
+  if (!invoke) {
+    toggle.disabled = true;
+    if (status) status.textContent = "仅 Comote 桌面端可用";
+    return;
+  }
+  const nextValue = toggle.checked;
+  toggle.disabled = true;
+  if (status) status.textContent = "正在保存…";
+  try {
+    const saved = await invoke("set_keep_daemon_alive", { enabled: nextValue });
+    toggle.checked = Boolean(saved);
+    if (status) status.textContent = toggle.checked ? KEEP_DAEMON_ALIVE_ON : KEEP_DAEMON_ALIVE_OFF;
+  } catch (error) {
+    toggle.checked = !nextValue;
+    if (status) status.textContent = `保存失败：${error}`;
+  } finally {
+    toggle.disabled = false;
+  }
 });
 
 // Surfaces write failures to the user instead of leaving the UI silently stale.
@@ -1016,8 +1174,10 @@ function setupNavigation() {
     for (const item of navItems) {
       item.classList.toggle("active", item.getAttribute("href") === `#${sectionId}`);
     }
-    if (NAV_LABELS[sectionId]) {
-      eyebrow.textContent = NAV_LABELS[sectionId];
+    if (eyebrow) {
+      if (NAV_LABELS[sectionId]) {
+        eyebrow.textContent = NAV_LABELS[sectionId];
+      }
     }
   }
 
@@ -1196,6 +1356,8 @@ function startAutoRefresh() {
 async function init() {
   setupNavigation();
   setBridgeStatus("启动中");
+  await loadDockIconPreference();
+  await loadKeepDaemonAlivePreference();
   await refreshVersionStatus();
   await render(); // paint immediately with whatever the daemon returns
   startAutoRefresh();
@@ -1232,7 +1394,7 @@ async function refreshVersionStatus() {
       if (latestEl) latestEl.textContent = data.latest;
       if (currentEl) currentEl.textContent = current ?? "未知";
       if (linkEl) {
-        linkEl.href = data.releaseUrl ?? "https://github.com/GavinYangAI/comote/releases";
+        linkEl.href = data.downloadUrl ?? data.releaseUrl ?? data.releasesUrl ?? RELEASES_URL;
       }
     } else {
       banner.hidden = true;
@@ -1251,8 +1413,8 @@ async function refreshVersionStatus() {
       aboutLatest.textContent = "暂无发布";
     }
   }
-  if (aboutLink && data?.releaseUrl) {
-    aboutLink.href = data.releaseUrl;
+  if (aboutLink) {
+    aboutLink.href = data?.releasesUrl ?? RELEASES_URL;
   }
 }
 
