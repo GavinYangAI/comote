@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Comote</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -127,10 +128,10 @@
               </div>
 
               <div class="feishu-domain-field">
-                <label class="domain-label">飞书域名</label>
+                <label class="domain-label" for="feishuDomain">飞书域名</label>
                 <form id="feishuConfigForm" class="stack-form channel-config-form feishu-domain-select">
                   <label class="select-wrap">
-                    <select name="domain">
+                    <select id="feishuDomain" name="domain">
                       <option value="feishu">飞书 · feishu.cn（中国）</option>
                       <option value="lark">Lark · larksuite.com（海外）</option>
                     </select>
@@ -281,6 +282,30 @@
                 <button type="submit">确认</button>
               </form>
             </article>
+
+            <article class="panel desktop-settings-panel">
+              <h3>桌面显示</h3>
+              <label class="setting-toggle" for="showDockIcon">
+                <span class="setting-copy">
+                  <strong>显示 Dock 图标</strong>
+                  <span id="dockIconSettingStatus" class="setting-note">读取中…</span>
+                </span>
+                <span class="switch-control">
+                  <input id="showDockIcon" type="checkbox" role="switch" aria-label="显示 Dock 图标">
+                  <span class="switch-track" aria-hidden="true"></span>
+                </span>
+              </label>
+              <label class="setting-toggle" for="keepDaemonAlive">
+                <span class="setting-copy">
+                  <strong>保持后台服务在线</strong>
+                  <span id="keepDaemonAliveStatus" class="setting-note">读取中…</span>
+                </span>
+                <span class="switch-control">
+                  <input id="keepDaemonAlive" type="checkbox" role="switch" aria-label="保持后台服务在线">
+                  <span class="switch-track" aria-hidden="true"></span>
+                </span>
+              </label>
+            </article>
           </section>
         </details>
 
@@ -298,16 +323,16 @@
               </dl>
               <div class="actions">
                 <button id="aboutCheckUpdate" class="secondary-button" type="button">检查更新</button>
-                <a id="aboutReleasesLink" class="secondary-button" href="https://github.com/GavinYangAI/comote/releases" target="_blank" rel="noopener">查看所有版本</a>
+                <a id="aboutReleasesLink" class="secondary-button" href="https://github.com/GavinYangAI/Comote/releases" target="_blank" rel="noopener">查看所有版本</a>
               </div>
             </article>
             <article class="panel">
               <h3>项目</h3>
               <dl class="kv">
-                <dt>仓库</dt><dd><a href="https://github.com/GavinYangAI/comote" target="_blank" rel="noopener">GavinYangAI/comote</a></dd>
+                <dt>仓库</dt><dd><a href="https://github.com/GavinYangAI/Comote" target="_blank" rel="noopener">GavinYangAI/Comote</a></dd>
                 <dt>作者</dt><dd><a href="https://github.com/GavinYangAI" target="_blank" rel="noopener">@GavinYangAI</a></dd>
                 <dt>协议</dt><dd>MIT License</dd>
-                <dt>报 Bug</dt><dd><a href="https://github.com/GavinYangAI/comote/issues" target="_blank" rel="noopener">提交 Issue</a></dd>
+                <dt>报 Bug</dt><dd><a href="https://github.com/GavinYangAI/Comote/issues" target="_blank" rel="noopener">提交 Issue</a></dd>
               </dl>
             </article>
           </div>
