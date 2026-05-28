@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, win32 as winPath } from "node:path";
 
 import { JsonRpcClient, StdioTransport } from "./json-rpc.js";
 
@@ -372,9 +372,73 @@ export class CodexDesktopConnector {
 }
 
 // Prefers the codex bundled inside Codex.app; falls back to a PATH lookup.
-function resolveCodexCommand() {
+export function resolveCodexCommand({
+  platform = process.platform,
+  env = process.env,
+  pathEnv = process.env.PATH ?? "",
+  exists = existsSync,
+  readdir = readdirSync,
+} = {}) {
+  if (platform === "win32") {
+    const localAppData = env.LOCALAPPDATA;
+    if (localAppData) {
+      const candidates = [
+        winPath.join(localAppData, "OpenAI", "Codex", "bin", "codex.exe"),
+        winPath.join(localAppData, "OpenAI", "Codex", "bin", "win32-x64", "codex.exe"),
+        winPath.join(localAppData, "OpenAI", "Codex", "bin", "x64", "codex.exe"),
+      ];
+      const localCodex = candidates.find((candidate) => exists(candidate));
+      if (localCodex) {
+        return localCodex;
+      }
+      const nestedCodex = findNestedCodexExecutable(winPath.join(localAppData, "OpenAI", "Codex", "bin"), {
+        exists,
+        readdir,
+      });
+      if (nestedCodex) {
+        return nestedCodex;
+      }
+    }
+    const pathCodex = String(pathEnv)
+      .split(";")
+      .filter(Boolean)
+      .map((entry) => winPath.join(entry, "codex.exe"))
+      .find((candidate) => exists(candidate) && !candidate.toLowerCase().includes("\\microsoft\\windowsapps\\"));
+    return pathCodex ?? "codex";
+  }
   const bundled = "/Applications/Codex.app/Contents/Resources/codex";
-  return existsSync(bundled) ? bundled : "codex";
+  return exists(bundled) ? bundled : "codex";
+}
+
+function findNestedCodexExecutable(dir, { exists, readdir, depth = 0, maxDepth = 4 }) {
+  const candidate = winPath.join(dir, "codex.exe");
+  if (exists(candidate)) {
+    return candidate;
+  }
+  if (depth >= maxDepth) {
+    return null;
+  }
+  let entries;
+  try {
+    entries = readdir(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry?.isDirectory?.()) {
+      continue;
+    }
+    const found = findNestedCodexExecutable(winPath.join(dir, entry.name), {
+      exists,
+      readdir,
+      depth: depth + 1,
+      maxDepth,
+    });
+    if (found) {
+      return found;
+    }
+  }
+  return null;
 }
 
 // Reads Codex Desktop's persisted workspace list: the active workspace, then

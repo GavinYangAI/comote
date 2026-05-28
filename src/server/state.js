@@ -153,9 +153,11 @@ export function createComoteState({
         return this.getConfig();
       },
       getStatus() {
+        ensureFeishuRuntimeDriverMatchesConfig();
         return feishuRuntime.getStatus();
       },
       start() {
+        ensureFeishuRuntimeDriverMatchesConfig();
         return feishuRuntime.start();
       },
       stop() {
@@ -189,10 +191,20 @@ export function createComoteState({
           }
           feishuConfig = normalizeFeishuConfig({ ...feishuConfig, linkedUserName: userName });
           result.userName = userName;
+          if (result.userId) {
+            authorization.detectIdentity({
+              channel: "feishu",
+              stableId: result.userId,
+              displayName: userName ?? result.userId,
+              role: "operator",
+            });
+          }
           await stateRef.persist?.();
-          await feishuRuntime.start().catch((error) => {
-            feishuRuntime.lastError = error.message;
-          });
+          if (autoStartFeishuRuntime) {
+            await feishuRuntime.start().catch((error) => {
+              feishuRuntime.lastError = error.message;
+            });
+          }
         }
         return result;
       },
@@ -203,10 +215,32 @@ export function createComoteState({
         feishuRuntime.configureDriver(testDriver);
       },
       deliverQueued() {
+        ensureFeishuRuntimeDriverMatchesConfig();
         return feishuRuntime.deliverQueued();
       },
     },
   };
+
+  function ensureFeishuRuntimeDriverMatchesConfig() {
+    const shouldHaveDriver = Boolean(feishuConfig.enabled && feishuConfig.appId && feishuConfig.appSecret);
+    const currentDriver = feishuRuntime.getStatus().driver;
+    const currentAppId = currentDriver?.appId ?? null;
+    const currentDomain = currentDriver?.domain ?? "feishu";
+    if (!shouldHaveDriver) {
+      if (currentDriver) {
+        feishuRuntime.configureDriver(null);
+      }
+      return;
+    }
+    if (currentAppId === feishuConfig.appId && currentDomain === feishuConfig.domain) {
+      return;
+    }
+    feishuRuntime.configureDriver(createFeishuDriver(feishuConfig));
+    eventLog.warn("飞书运行时配置已重新同步", {
+      appId: feishuConfig.appId,
+      previousAppId: currentAppId,
+    });
+  }
 
   const stateRef = {
     authorization,

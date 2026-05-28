@@ -417,7 +417,15 @@ async function serveStatic(request, response) {
 function formatVersionResponse(state) {
   const version = state.currentVersion ?? null;
   if (!state.versionChecker) {
-    return { version, latest: null, hasUpdate: false, releaseUrl: null, checkedAt: null };
+    return {
+      version,
+      latest: null,
+      hasUpdate: false,
+      releaseUrl: null,
+      releasesUrl: "https://github.com/GavinYangAI/Comote/releases",
+      downloadUrl: null,
+      checkedAt: null,
+    };
   }
   const result = state.versionChecker.getLastResult();
   return {
@@ -425,6 +433,8 @@ function formatVersionResponse(state) {
     latest: result.latest,
     hasUpdate: Boolean(result.hasUpdate),
     releaseUrl: result.releaseUrl,
+    releasesUrl: result.releasesUrl,
+    downloadUrl: result.downloadUrl,
     releaseNotes: result.releaseNotes,
     checkedAt: result.checkedAt,
     error: result.error,

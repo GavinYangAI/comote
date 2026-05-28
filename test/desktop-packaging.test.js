@@ -18,7 +18,17 @@ test("desktop packaging targets the requested Tauri installer artifacts", async 
   // and the embedded Tauri version don't drift apart.
   assert.equal(tauriConfig.version, packageJson.version);
   assert.equal(tauriConfig.identifier, "dev.comote.desktop");
+  assert.equal(tauriConfig.app.withGlobalTauri, true);
   assert.deepEqual(tauriConfig.bundle.targets, ["app", "dmg", "nsis"]);
   assert.equal(tauriConfig.bundle.fileAssociations, undefined);
   assert.equal(tauriConfig.bundle.externalBin[0], "binaries/comote-node");
+});
+
+test("mac sidecar builder refreshes stale Homebrew node shims", async () => {
+  const sidecarScript = await readFile("scripts/build-sidecar.mjs", "utf8");
+
+  assert.match(sidecarScript, /isUsableSidecar/);
+  assert.match(sidecarScript, /MIN_STANDALONE_NODE_BYTES/);
+  assert.match(sidecarScript, /rm\(armOutputPath,\s*\{\s*force:\s*true\s*\}\)/);
+  assert.doesNotMatch(sidecarScript, /if\s*\(\s*await exists\(armOutputPath\)\s*\)\s*\{\s*return;\s*\}/);
 });

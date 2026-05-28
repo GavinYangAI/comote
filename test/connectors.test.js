@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CodexDesktopConnector } from "../src/connectors/codex-desktop/index.js";
+import { CodexDesktopConnector, resolveCodexCommand } from "../src/connectors/codex-desktop/index.js";
 import { CodexCliConnector } from "../src/connectors/codex-cli/index.js";
 
 class MemoryTransport {
@@ -56,6 +56,50 @@ test("desktop connector is the primary Codex connector", () => {
     protocol: "app-server",
     endpoint: "codex app-server (stdio)",
   });
+});
+
+test("desktop connector prefers the Windows Codex Desktop binary over WindowsApps aliases", () => {
+  const localAppData = "C:\\Users\\Alice\\AppData\\Local";
+  const preferred = `${localAppData}\\OpenAI\\Codex\\bin\\codex.exe`;
+  const windowsApps = `${localAppData}\\Microsoft\\WindowsApps\\codex.exe`;
+
+  assert.equal(
+    resolveCodexCommand({
+      platform: "win32",
+      env: { LOCALAPPDATA: localAppData },
+      pathEnv: windowsApps,
+      exists: (path) => path === preferred || path === windowsApps,
+    }),
+    preferred,
+  );
+});
+
+test("desktop connector searches nested Windows Codex Desktop bin folders", () => {
+  const localAppData = "C:\\Users\\Alice\\AppData\\Local";
+  const nested = `${localAppData}\\OpenAI\\Codex\\bin\\app-0.2.1\\resources\\codex.exe`;
+  const windowsApps = `${localAppData}\\Microsoft\\WindowsApps\\codex.exe`;
+  const dirs = new Map([
+    [
+      `${localAppData}\\OpenAI\\Codex\\bin`,
+      [{ name: "app-0.2.1", isDirectory: () => true }],
+    ],
+    [
+      `${localAppData}\\OpenAI\\Codex\\bin\\app-0.2.1`,
+      [{ name: "resources", isDirectory: () => true }],
+    ],
+    [`${localAppData}\\OpenAI\\Codex\\bin\\app-0.2.1\\resources`, []],
+  ]);
+
+  assert.equal(
+    resolveCodexCommand({
+      platform: "win32",
+      env: { LOCALAPPDATA: localAppData },
+      pathEnv: windowsApps,
+      exists: (path) => path === nested || path === windowsApps,
+      readdir: (path) => dirs.get(path) ?? [],
+    }),
+    nested,
+  );
 });
 
 test("desktop connector initializes through app-server JSON-RPC", async () => {
