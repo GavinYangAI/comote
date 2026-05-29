@@ -169,11 +169,38 @@ async function handleApi(request, response, state) {
     if (threadId) {
       const limit = Number(url.searchParams.get("limit") || 20);
       const offset = Number(url.searchParams.get("offset") || 0);
-      sendJson(response, 200, state.transcript?.listThread?.(threadId, { limit, offset })
-        ?? { threadId, messages: [], total: 0, hasMore: false });
+      const local = state.transcript?.listThread?.(threadId, { limit, offset })
+        ?? { threadId, messages: [], total: 0, hasMore: false };
+      if (local.total > 0) {
+        sendJson(response, 200, local);
+        return;
+      }
+      // Prefer Codex Desktop's real thread transcript; fall back to the local
+      // phone-bridge transcript when the desktop call fails or returns nothing.
+      const desktop = state.connectors.desktop;
+      if (desktop?.getStatus?.()?.state === "connected" && desktop.getThreadTranscript) {
+        try {
+          const codex = await desktop.getThreadTranscript({ threadId, limit, offset });
+          if (codex?.messages?.length) {
+            sendJson(response, 200, codex);
+            return;
+          }
+        } catch {
+          // fall through to local transcript
+        }
+      }
+      sendJson(response, 200, local);
       return;
     }
     sendJson(response, 200, state.transcript?.list?.() ?? []);
+    return;
+  }
+
+  // Thread IDs that have local phone-bridge records — lets the UI flag/filter
+  // which Codex threads have been touched over the phone channel.
+  if (request.method === "GET" && url.pathname === "/api/codex/phone-threads") {
+    const threads = state.transcript?.list?.() ?? [];
+    sendJson(response, 200, threads.map((thread) => thread.threadId));
     return;
   }
 
@@ -417,7 +444,15 @@ async function serveStatic(request, response) {
 function formatVersionResponse(state) {
   const version = state.currentVersion ?? null;
   if (!state.versionChecker) {
-    return { version, latest: null, hasUpdate: false, releaseUrl: null, checkedAt: null };
+    return {
+      version,
+      latest: null,
+      hasUpdate: false,
+      releaseUrl: null,
+      releasesUrl: "https://github.com/GavinYangAI/Comote/releases",
+      downloadUrl: null,
+      checkedAt: null,
+    };
   }
   const result = state.versionChecker.getLastResult();
   return {
@@ -425,6 +460,8 @@ function formatVersionResponse(state) {
     latest: result.latest,
     hasUpdate: Boolean(result.hasUpdate),
     releaseUrl: result.releaseUrl,
+    releasesUrl: result.releasesUrl,
+    downloadUrl: result.downloadUrl,
     releaseNotes: result.releaseNotes,
     checkedAt: result.checkedAt,
     error: result.error,
