@@ -11,6 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -86,6 +89,8 @@ const COMOTE_PORT: u16 = 16208;
 const DEFAULT_SHOW_DOCK_ICON: bool = true;
 const DEFAULT_KEEP_DAEMON_ALIVE: bool = false;
 const DESKTOP_SETTINGS_FILE: &str = "desktop-settings.json";
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 enum ExistingService {
     None,
@@ -559,6 +564,7 @@ fn start_manual_comote_node(
             .env("COMOTE_STATE_PATH", normalize_windows_path(state_path))
             .stdout(stdout)
             .stderr(stderr)
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn();
     }
     #[cfg(not(target_os = "windows"))]
