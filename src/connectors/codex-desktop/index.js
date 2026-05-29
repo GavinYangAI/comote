@@ -343,6 +343,27 @@ export class CodexDesktopConnector {
     };
   }
 
+  // Full paginated transcript for one thread, pulled live from Codex Desktop's
+  // turn history. Returns the same shape as the local Transcript.listThread so
+  // the HTTP route and frontend can treat both sources identically:
+  // messages are newest-first, sliced by offset/limit.
+  async getThreadTranscript({ threadId, limit = 20, offset = 0 }) {
+    const response = await this.client.request("thread/turns/list", { threadId });
+    const turns = normalizeTurnList(response);
+    const all = [];
+    for (const turn of turns) {
+      all.push(...extractTurnMessages(turn));
+    }
+    const newestFirst = all.slice().reverse();
+    const page = newestFirst.slice(offset, offset + limit);
+    return {
+      threadId,
+      messages: page,
+      total: all.length,
+      hasMore: offset + page.length < all.length,
+    };
+  }
+
   async cancelTurn({ threadId }) {
     const turns = await this.client.request("thread/turns/list", { threadId });
     const activeTurn = normalizeTurnList(turns).find((turn) => isActiveTurn(turn));

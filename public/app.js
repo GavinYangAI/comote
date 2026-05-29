@@ -35,8 +35,13 @@ let feishuLoginPollTimer = null;
 let refreshTimer = null;
 let rendering = false;
 let logsOffset = 0;
-let conversationThreads = [];
-let conversationShown = 0;
+let logsVisibleLimit = 5;
+let logsRefreshEpoch = 0;
+let phoneThreadIds = new Set();
+let phoneOnly = false;
+let codexProjects = [];
+let selectedProjectPath = null;
+let desktopConnected = false;
 
 function getTauriInvoke() {
   return globalThis.__TAURI__?.core?.invoke ?? null;
@@ -75,6 +80,8 @@ async function render() {
 }
 
 async function renderOnce() {
+  const logsLimit = Math.max(logsVisibleLimit, 5);
+  const logsRequestEpoch = logsRefreshEpoch;
   const [
     status,
     identities,
@@ -100,11 +107,12 @@ async function renderOnce() {
     safeGet("/api/channels/feishu/config", {}),
     safeGet("/api/channels/feishu/runtime", { state: "not_configured" }),
     safeGet("/api/approvals", []),
-    safeGet("/api/logs?limit=5&offset=0", { entries: [], total: 0, hasMore: false }),
+    safeGet(`/api/logs?limit=${logsLimit}&offset=0`, { entries: [], total: 0, hasMore: false }),
   ]);
-  const [transcript] = await Promise.all([
-    safeGet("/api/codex/transcript", []),
+  const [phoneThreads] = await Promise.all([
+    safeGet("/api/codex/phone-threads", []),
   ]);
+  phoneThreadIds = new Set((phoneThreads.ok ? phoneThreads.value ?? [] : []).map((threadId) => String(threadId)));
 
   // The daemon being unreachable (or token-gated) is the one failure that
   // genuinely blocks everything — surface it explicitly instead of silently.
@@ -134,9 +142,8 @@ async function renderOnce() {
   renderWechat(wechatStatus, wechatConfig, wechatRuntime);
   renderFeishu(feishuStatus, feishuConfig, feishuRuntime);
   renderApprovals(approvals);
-  renderLogs(logs);
-  renderConversation(transcript);
-  await renderThreads(status.value, projects.value);
+  renderLogs(logs, logsLimit, logsRequestEpoch);
+  await renderThreads(status.value);
 }
 
 function renderReadiness(status, wechatConfigResult, feishuConfigResult, identitiesResult, wechatRuntimeResult, feishuRuntimeResult) {
@@ -262,21 +269,53 @@ function renderCandidates(result) {
 }
 
 function renderProjects(result) {
-  const target = document.querySelector("#projects");
-  if (!result.ok) {
-    target.innerHTML = sectionError("无法加载项目");
+  const picker = document.querySelector("#conversationProjectPicker");
+  codexProjects = result.ok && Array.isArray(result.value) ? result.value : [];
+
+  if (codexProjects.length === 0) {
+    picker.hidden = true;
+    selectedProjectPath = null;
+    updateProjectComboLabel();
     return;
   }
-  const projects = result.value;
-  target.innerHTML =
-    projects.length === 0
-      ? `<li>暂无项目。</li>`
-      : projects
-          .map(
-            (project) =>
-              `<li><strong>${escapeHtml(project.id)}. ${escapeHtml(project.name)}</strong><div class="meta">${escapeHtml(project.path)}</div><div class="meta">${escapeHtml(project.source)} · ${escapeHtml(project.status)}</div></li>`,
-          )
-          .join("");
+
+  // Keep the prior selection if it still exists; otherwise default to the first project.
+  const stillExists = codexProjects.some((p) => p.path === selectedProjectPath);
+  if (!stillExists) {
+    selectedProjectPath = codexProjects[0].path;
+  }
+
+  picker.hidden = false;
+  updateProjectComboLabel();
+  paintProjectComboList("");
+}
+
+function updateProjectComboLabel() {
+  const label = document.querySelector("#projectComboLabel");
+  const project = selectedProject();
+  label.textContent = project ? project.name : "选择项目";
+}
+
+function paintProjectComboList(query) {
+  const list = document.querySelector("#projectComboList");
+  const needle = query.trim().toLowerCase();
+  const matches = codexProjects.filter(
+    (p) => p.name.toLowerCase().includes(needle) || p.path.toLowerCase().includes(needle),
+  );
+  if (matches.length === 0) {
+    list.innerHTML = `<li class="project-combo-empty">无匹配项目</li>`;
+    return;
+  }
+  list.innerHTML = matches
+    .map(
+      (project) =>
+        `<li class="project-combo-option${project.path === selectedProjectPath ? " selected" : ""}" role="option" data-path="${escapeAttr(project.path)}" aria-selected="${project.path === selectedProjectPath}"><span class="project-combo-name">${escapeHtml(project.name)}</span><span class="project-combo-path">${escapeHtml(project.path)}</span></li>`,
+    )
+    .join("");
+}
+
+function selectedProject() {
+  return codexProjects.find((p) => p.path === selectedProjectPath) ?? codexProjects[0] ?? null;
 }
 
 function renderWechat(statusResult, configResult, runtimeResult) {
@@ -382,8 +421,20 @@ function renderLogEntries(entries) {
     .join("");
 }
 
-function renderLogs(result) {
+function resetLogVisibleLimit() {
+  logsVisibleLimit = 5;
+  logsOffset = 0;
+  logsRefreshEpoch += 1;
+}
+
+function renderLogs(result, requestedLimit = 5, requestEpoch = logsRefreshEpoch) {
   const target = document.querySelector("#logList");
+  if (requestEpoch !== logsRefreshEpoch) {
+    return;
+  }
+  if (requestedLimit < logsVisibleLimit) {
+    return;
+  }
   if (!result.ok) {
     target.innerHTML = sectionError("无法加载运行日志");
     return;
@@ -392,6 +443,7 @@ function renderLogs(result) {
   const entries = data.entries ?? [];
   const hasMore = data.hasMore ?? false;
   logsOffset = entries.length;
+  logsVisibleLimit = Math.max(logsVisibleLimit, logsOffset, 5);
   if (entries.length === 0) {
     target.innerHTML = `<li><strong>暂无日志</strong><div class="meta">确认用户、处理命令、审批等事件会记录在这里。</div></li>`;
     return;
@@ -405,68 +457,146 @@ function renderLogs(result) {
   }
 }
 
-function renderConversation(result) {
-  const target = document.querySelector("#conversationList");
-  if (!result.ok) {
-    target.innerHTML = `<p class="meta">无法加载对话记录。</p>`;
-    return;
-  }
-  conversationThreads = result.value ?? [];
-  conversationShown = Math.min(5, conversationThreads.length);
-  paintConversation();
-}
-
-function paintConversation() {
-  const target = document.querySelector("#conversationList");
-  if (conversationThreads.length === 0) {
-    target.innerHTML = `<p class="meta">还没有对话。手机上向 Codex 发消息后会显示在这里。</p>`;
-    return;
-  }
-  const html = conversationThreads
-    .slice(0, conversationShown)
-    .map((thread) => {
-      const messages = thread.messages
-        .slice(-12)
-        .map(
-          (message) =>
-            `<div class="chat-msg chat-${message.role === "user" ? "user" : "assistant"}"><span class="chat-role">${message.role === "user" ? "手机" : "Codex"}</span><span class="chat-text">${escapeHtml(message.text)}</span></div>`,
-        )
-        .join("");
-      return `<article class="chat-thread"><div class="meta">${escapeHtml(thread.threadId)}</div>${messages}</article>`;
-    })
-    .join("");
-  const moreBtn =
-    conversationShown < conversationThreads.length
-      ? `<button class="secondary-button load-more-btn" id="conversationLoadMore">加载更多</button>`
-      : "";
-  target.innerHTML = html + moreBtn;
-}
 
 
-async function renderThreads(status, projectsValue) {
+let lastThreadList = [];
+let lastPaintSignature = null;
+const expandedThreadStates = new Map();
+
+async function renderThreads(status) {
   const target = document.querySelector("#threads");
-  const projects = Array.isArray(projectsValue) ? projectsValue : [];
-  const primaryProject = projects[0];
-  if (status.connectors.desktop.state !== "connected" || !primaryProject) {
+  const project = selectedProject();
+  desktopConnected = status.connectors.desktop.state === "connected";
+
+  if (status.connectors.desktop.state !== "connected" || !project) {
+    lastThreadList = [];
+    lastPaintSignature = null;
     target.innerHTML = `<li><strong>未连接</strong><div class="meta">打开 Codex Desktop 后，这里会显示已有对话。</div></li>`;
     return;
   }
-  const result = await safeGet(`/api/codex/threads?cwd=${encodeURIComponent(primaryProject.path)}`, null);
+  const result = await safeGet(`/api/codex/threads?cwd=${encodeURIComponent(project.path)}`, null);
   if (!result.ok) {
+    lastThreadList = [];
+    lastPaintSignature = null;
     target.innerHTML = sectionError("无法加载 Codex 对话");
     return;
   }
-  const threadList = result.value?.data ?? result.value?.threads ?? [];
-  target.innerHTML =
-    threadList.length === 0
-      ? `<li>未找到 ${escapeHtml(primaryProject.name)} 的 Codex Desktop 对话。</li>`
-      : threadList
-          .map((thread, index) => {
-            const title = thread.title ?? thread.name ?? thread.preview ?? thread.id;
-            const cwd = thread.cwd ?? primaryProject.path;
-            return `<li class="thread-row" data-thread-id="${escapeAttr(thread.id)}"><div class="thread-row-summary"><strong>${index + 1}. ${escapeHtml(title)}</strong><div class="meta">${escapeHtml(thread.id)}</div><div class="meta">${escapeHtml(cwd)}</div></div><div class="thread-detail" hidden data-offset="0"></div></li>`;
-          })
-          .join("");
+  lastThreadList = result.value?.data ?? result.value?.threads ?? [];
+  paintThreads();
+  await refreshExpandedThreadDetails();
+}
+
+// A signature of what paintThreads would render. When it is unchanged we skip
+// the repaint entirely so the periodic 5s refresh never wipes an expanded
+// conversation (or the user's scroll position).
+function threadListSignature(visible) {
+  return `${phoneOnly ? "1" : "0"}:${visible
+    .map((thread) => {
+      const threadId = String(thread.id ?? "");
+      return `${threadId}~${phoneThreadIds.has(threadId) ? 1 : 0}`;
+    })
+    .join("|")}`;
+}
+
+function defaultExpandedThreadState() {
+  return {
+    open: false,
+    html: "",
+    loaded: "",
+    offset: "0",
+  };
+}
+
+function syncExpandedThreadState(row) {
+  const threadId = row?.dataset?.threadId;
+  const panel = row?.querySelector?.(".thread-detail");
+  if (!threadId || !panel) {
+    return;
+  }
+  const current = expandedThreadStates.get(threadId) ?? defaultExpandedThreadState();
+  expandedThreadStates.set(threadId, {
+    ...current,
+    open: !panel.hidden,
+    html: panel.innerHTML,
+    loaded: panel.dataset.loaded ?? "",
+    offset: panel.dataset.offset ?? "0",
+  });
+}
+
+function syncExpandedThreadStates(target) {
+  for (const row of target.querySelectorAll("li[data-thread-id]")) {
+    syncExpandedThreadState(row);
+  }
+}
+
+function updateThreadToggle(row, isExpanded) {
+  const toggle = row?.querySelector?.(".thread-toggle-btn");
+  if (!toggle) {
+    return;
+  }
+  toggle.setAttribute("aria-expanded", String(isExpanded));
+  toggle.setAttribute("aria-label", isExpanded ? "收回" : "展开");
+  toggle.setAttribute("title", isExpanded ? "收回" : "展开");
+}
+
+function findThreadRow(threadId) {
+  return [...document.querySelectorAll("#threads li[data-thread-id]")].find((row) => row.dataset.threadId === threadId);
+}
+
+function threadRowHtml(thread, index, fallbackCwd) {
+  const threadId = String(thread.id ?? "");
+  const title = thread.title ?? thread.name ?? thread.preview ?? threadId;
+  const cwd = thread.cwd ?? fallbackCwd;
+  const isPhone = phoneThreadIds.has(threadId);
+  const badge = isPhone ? `<span class="thread-badge">手机</span>` : "";
+  const state = expandedThreadStates.get(threadId) ?? defaultExpandedThreadState();
+  const expanded = state.open === true;
+  return `<li class="thread-row${expanded ? " expanded" : ""}" data-thread-id="${escapeAttr(threadId)}"><div class="thread-row-summary"><div class="thread-row-main"><strong>${index + 1}. ${escapeHtml(title)}</strong>${badge}<div class="meta">${escapeHtml(threadId)}</div><div class="meta">${escapeHtml(cwd)}</div></div><button class="thread-toggle-btn" type="button" aria-expanded="${expanded}" aria-label="${expanded ? "收回" : "展开"}" title="${expanded ? "收回" : "展开"}"></button></div><div class="thread-detail" ${expanded ? "" : "hidden"} data-offset="${escapeAttr(state.offset)}" data-loaded="${escapeAttr(state.loaded)}">${state.html ?? ""}</div></li>`;
+}
+
+function pruneExpandedThreadStates(visible) {
+  const visibleIds = new Set(visible.map((thread) => String(thread.id ?? "")));
+  for (const threadId of expandedThreadStates.keys()) {
+    if (!visibleIds.has(threadId)) {
+      expandedThreadStates.delete(threadId);
+    }
+  }
+}
+
+// Repaints the cached thread list, applying the 仅手机渠道 filter. Kept separate
+// from renderThreads so toggling the filter doesn't re-fetch from Codex.
+function paintThreads() {
+  const target = document.querySelector("#threads");
+  const project = selectedProject();
+  const fallbackPath = project?.path ?? "";
+  const visible = phoneOnly
+    ? lastThreadList.filter((thread) => phoneThreadIds.has(String(thread.id ?? "")))
+    : lastThreadList;
+
+  if (visible.length === 0) {
+    const label = phoneOnly ? "没有经手机渠道的对话。" : `未找到${project ? ` ${escapeHtml(project.name)}` : ""}的对话。`;
+    target.innerHTML = `<li>${label}</li>`;
+    lastPaintSignature = null;
+    return;
+  }
+
+  const signature = threadListSignature(visible);
+  if (signature === lastPaintSignature) {
+    return;
+  }
+
+  syncExpandedThreadStates(target);
+  pruneExpandedThreadStates(visible);
+  target.innerHTML = visible.map((thread, index) => threadRowHtml(thread, index, fallbackPath)).join("");
+  lastPaintSignature = signature;
+}
+
+async function refreshExpandedThreadDetails() {
+  const rows = [...document.querySelectorAll("#threads li[data-thread-id]")].filter((row) => {
+    const panel = row.querySelector(".thread-detail");
+    return panel && !panel.hidden && panel.dataset.loaded === "1";
+  });
+  await Promise.all(rows.map((row) => refreshThreadDetail(row)));
 }
 
 function setBridgeStatus(label) {
@@ -505,6 +635,7 @@ document.querySelector("#retryLoad").addEventListener("click", async () => {
 });
 
 document.querySelector("#refreshLogs").addEventListener("click", async () => {
+  resetLogVisibleLimit();
   await render();
 });
 
@@ -1160,7 +1291,7 @@ const NAV_LABELS = {
   phoneCommands: "从手机使用",
   approvals: "待审批操作",
   users: "授权用户",
-  conversation: "对话记录",
+  conversation: "Codex 对话",
   logs: "运行日志",
   advanced: "高级设置",
   about: "关于 Comote",
@@ -1219,7 +1350,46 @@ function renderThreadMessages(messages) {
     .join("");
 }
 
-document.querySelector("#threads").addEventListener("click", async (event) => {
+function updateThreadDetailPanel(row, transcript) {
+  const panel = row.querySelector(".thread-detail");
+  if (!panel) {
+    return;
+  }
+  const messages = (transcript.messages ?? []).slice().reverse();
+  const hasMore = transcript.hasMore ?? false;
+  panel.dataset.offset = String(messages.length);
+  if (messages.length === 0) {
+    panel.innerHTML = `<div class="meta">暂无本地记录</div>`;
+    syncExpandedThreadState(row);
+    return;
+  }
+  let html = renderThreadMessages(messages);
+  if (hasMore) {
+    html += `<button class="secondary-button thread-load-more-btn">加载更多</button>`;
+  }
+  panel.innerHTML = html;
+  syncExpandedThreadState(row);
+}
+
+async function refreshThreadDetail(row) {
+  const panel = row.querySelector(".thread-detail");
+  const threadId = row.dataset.threadId;
+  if (!panel || !threadId) {
+    return;
+  }
+  const refreshLimit = Math.max(Number(panel.dataset.offset || 0), 5);
+  const result = await safeGet(
+    `/api/codex/transcript?threadId=${encodeURIComponent(threadId)}&limit=${refreshLimit}&offset=0`,
+    null,
+  );
+  if (!result.ok || !result.value) {
+    return;
+  }
+  const liveRow = findThreadRow(threadId) ?? row;
+  updateThreadDetailPanel(liveRow, result.value);
+}
+
+async function handleThreadListClick(event) {
   const row = event.target.closest("li[data-thread-id]");
   if (!row) {
     return;
@@ -1256,15 +1426,24 @@ document.querySelector("#threads").addEventListener("click", async (event) => {
       frag.appendChild(moreLi.firstChild);
     }
     panel.appendChild(frag);
+    syncExpandedThreadState(row);
     return;
   }
 
+  await toggleThreadDetail(row);
+}
+
+async function toggleThreadDetail(row) {
   const panel = row.querySelector(".thread-detail");
   if (!panel) {
     return;
   }
   const isExpanded = !panel.hidden;
-  panel.hidden = isExpanded;
+  const nextExpanded = !isExpanded;
+  panel.hidden = !nextExpanded;
+  row.classList.toggle("expanded", nextExpanded);
+  updateThreadToggle(row, nextExpanded);
+  syncExpandedThreadState(row);
   if (isExpanded) {
     return;
   }
@@ -1275,26 +1454,81 @@ document.querySelector("#threads").addEventListener("click", async (event) => {
   panel.dataset.loaded = "1";
   panel.innerHTML = `<div class="meta">加载中…</div>`;
   const threadId = row.dataset.threadId;
+  syncExpandedThreadState(row);
   const firstResult = await safeGet(
     `/api/codex/transcript?threadId=${encodeURIComponent(threadId)}&limit=5&offset=0`,
     null,
   );
+  const liveRow = findThreadRow(threadId) ?? row;
   if (!firstResult.ok || !firstResult.value) {
-    panel.innerHTML = `<div class="meta">无法加载记录。</div>`;
+    const livePanel = liveRow.querySelector(".thread-detail") ?? panel;
+    livePanel.innerHTML = `<div class="meta">无法加载记录。</div>`;
+    syncExpandedThreadState(liveRow);
     return;
   }
-  const messages = (firstResult.value.messages ?? []).slice().reverse();
-  const hasMore = firstResult.value.hasMore ?? false;
-  panel.dataset.offset = String(messages.length);
-  if (messages.length === 0) {
-    panel.innerHTML = `<div class="meta">暂无本地记录</div>`;
+  updateThreadDetailPanel(liveRow, firstResult.value);
+}
+
+document.querySelector("#threads").addEventListener("click", handleThreadListClick);
+document.querySelector("#phoneOnlyFilter").addEventListener("change", (event) => {
+  phoneOnly = event.target.checked;
+  paintThreads();
+});
+
+// --- Searchable project combobox ---
+function openProjectCombo() {
+  const panel = document.querySelector("#projectComboPanel");
+  const trigger = document.querySelector("#projectComboTrigger");
+  const search = document.querySelector("#projectComboSearch");
+  paintProjectComboList("");
+  search.value = "";
+  panel.hidden = false;
+  trigger.setAttribute("aria-expanded", "true");
+  search.focus();
+}
+
+function closeProjectCombo() {
+  const panel = document.querySelector("#projectComboPanel");
+  const trigger = document.querySelector("#projectComboTrigger");
+  panel.hidden = true;
+  trigger.setAttribute("aria-expanded", "false");
+}
+
+document.querySelector("#projectComboTrigger").addEventListener("click", () => {
+  const panel = document.querySelector("#projectComboPanel");
+  if (panel.hidden) {
+    openProjectCombo();
+  } else {
+    closeProjectCombo();
+  }
+});
+
+document.querySelector("#projectComboSearch").addEventListener("input", (event) => {
+  paintProjectComboList(event.target.value);
+});
+
+document.querySelector("#projectComboList").addEventListener("click", async (event) => {
+  const option = event.target.closest(".project-combo-option");
+  if (!option) {
     return;
   }
-  let html = renderThreadMessages(messages);
-  if (hasMore) {
-    html += `<button class="secondary-button thread-load-more-btn">加载更多</button>`;
+  selectedProjectPath = option.dataset.path;
+  updateProjectComboLabel();
+  closeProjectCombo();
+  await renderThreads({ connectors: { desktop: { state: desktopConnected ? "connected" : "disconnected" } } });
+});
+
+// Close the combo when clicking outside it or pressing Escape.
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".project-combo")) {
+    closeProjectCombo();
   }
-  panel.innerHTML = html;
+});
+document.querySelector("#projectComboSearch").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeProjectCombo();
+    document.querySelector("#projectComboTrigger").focus();
+  }
 });
 
 document.querySelector("#logList").addEventListener("click", async (event) => {
@@ -1312,7 +1546,9 @@ document.querySelector("#logList").addEventListener("click", async (event) => {
   }
   const newEntries = result.value.entries ?? [];
   const newHasMore = result.value.hasMore ?? false;
-  logsOffset += newEntries.length;
+  const visibleCount = logsOffset + newEntries.length;
+  logsOffset = visibleCount;
+  logsVisibleLimit = Math.max(logsVisibleLimit, visibleCount, 5);
   // Remove the load-more list item
   const loadMoreItem = btn.closest(".load-more-item");
   if (loadMoreItem) {
@@ -1331,14 +1567,6 @@ document.querySelector("#logList").addEventListener("click", async (event) => {
     li.innerHTML = `<button class="secondary-button load-more-btn" id="logsLoadMore">加载更多</button>`;
     target.appendChild(li);
   }
-});
-
-document.querySelector("#conversationList").addEventListener("click", (event) => {
-  if (!event.target.closest("#conversationLoadMore")) {
-    return;
-  }
-  conversationShown += 5;
-  paintConversation();
 });
 
 function startAutoRefresh() {
