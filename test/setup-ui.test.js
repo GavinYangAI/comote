@@ -96,12 +96,13 @@ test("advanced settings expose a keep-daemon-alive toggle in the last panel", as
   assert.match(app, /get_keep_daemon_alive/);
   assert.match(app, /set_keep_daemon_alive/);
 
-  // The desktop-display panel must be the LAST card in the advanced grid.
-  const gridStart = html.indexOf('class="advanced-grid"');
+  // The desktop-display panel must stay in the LAST advanced section.
+  const bodyStart = html.indexOf('class="advanced-body"');
   const dockPanel = html.indexOf("desktop-settings-panel");
-  const lastArticle = html.lastIndexOf("<article", html.indexOf("</section>", gridStart));
-  assert.ok(gridStart !== -1 && dockPanel !== -1);
-  assert.ok(dockPanel >= lastArticle, "desktop-settings panel should be the last article in advanced-grid");
+  const bodyEnd = html.indexOf("</details>", bodyStart);
+  const lastSection = html.lastIndexOf('class="advanced-section"', bodyEnd);
+  assert.ok(bodyStart !== -1 && dockPanel !== -1);
+  assert.ok(dockPanel >= lastSection, "desktop-settings panel should be in the last advanced section");
 });
 
 test("external links route through open_external in the Tauri webview", async () => {

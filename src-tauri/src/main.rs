@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::{Read, Write},
     net::TcpStream,
     path::PathBuf,
@@ -540,11 +540,11 @@ fn start_manual_comote_node(
             .map(PathBuf::from)
             .unwrap_or_else(|| resource_dir.clone());
         let _ = fs::create_dir_all(&log_dir);
-        let stdout = OpenOptions::new()
+        let stdout = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_dir.join("comote-node.stdout.log"))?;
-        let stderr = OpenOptions::new()
+        let stderr = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_dir.join("comote-node.stderr.log"))?;

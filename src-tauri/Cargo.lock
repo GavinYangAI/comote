@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "comote"
-version = "0.2.3-test"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "libc",
