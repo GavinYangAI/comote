@@ -519,42 +519,100 @@ function normalizeTurnList(response) {
 // genuine back-and-forth context, not just the agent half.
 function extractTurnMessages(turn) {
   const out = [];
+  const seen = new Set();
+  const push = (role, value) => {
+    const text = textFromMessageValue(value);
+    if (!text) return;
+    const key = `${role}\0${text}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ role, text });
+  };
+
   // 1) User input on the turn.
-  const inputs = turn?.input ?? turn?.userInput ?? [];
-  for (const part of Array.isArray(inputs) ? inputs : []) {
-    const text = typeof part === "string" ? part : part?.text;
-    if (text) out.push({ role: "user", text });
+  const inputCandidates = [
+    turn?.input,
+    turn?.userInput,
+    turn?.inputText,
+    turn?.prompt,
+    turn?.userPrompt,
+    turn?.userMessage,
+    turn?.request?.input,
+    turn?.params?.input,
+    turn?.payload?.input,
+  ];
+  for (const candidate of inputCandidates) {
+    for (const text of textPartsFromValue(candidate)) {
+      push("user", text);
+    }
   }
+
   // 2) Nested items (agent messages and potentially explicit user_message
   //    items in some shapes).
   const itemLists = [
     turn?.items,
     turn?.events,
     turn?.eventMsgs,
+    turn?.messages,
     turn?.output,
     turn?.agentOutput,
     turn?.payload?.items,
+    turn?.payload?.messages,
   ];
   for (const list of itemLists) {
     if (!Array.isArray(list)) continue;
     for (const item of list) {
       const type = item?.type ?? item?.payload?.type ?? null;
-      const text =
+      const text = textFromMessageValue(
         item?.text ??
-        item?.payload?.text ??
-        (typeof item?.content === "string" ? item.content : null);
+          item?.payload?.text ??
+          item?.content ??
+          item?.payload?.content ??
+          item?.message ??
+          item?.payload?.message,
+      );
       if (!text) continue;
       if (type === "user_message" || type === "userMessage") {
-        out.push({ role: "user", text });
+        push("user", text);
       } else if (type === "agent_message" || type === "agentMessage") {
-        out.push({ role: "assistant", text });
+        push("assistant", text);
       } else if (type === "message") {
         const role = item.role ?? item.payload?.role ?? "assistant";
-        out.push({ role: role === "user" ? "user" : "assistant", text });
+        push(role === "user" ? "user" : "assistant", text);
       }
     }
   }
   return out;
+}
+
+function textPartsFromValue(value) {
+  if (value == null) return [];
+  if (typeof value === "string") return value.trim() ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap((part) => textPartsFromValue(part));
+  if (typeof value === "object") {
+    const text = textFromMessageValue(value);
+    return text ? [text] : [];
+  }
+  return [];
+}
+
+function textFromMessageValue(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value.map(textFromMessageValue).filter(Boolean).join("\n").trim();
+  }
+  if (typeof value === "object") {
+    return textFromMessageValue(
+      value.text ??
+        value.input_text ??
+        value.output_text ??
+        value.message ??
+        value.content ??
+        value.value,
+    );
+  }
+  return "";
 }
 
 function basename(path) {

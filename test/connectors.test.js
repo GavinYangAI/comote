@@ -429,6 +429,42 @@ test("desktop connector resumes existing Codex Desktop threads", async () => {
   assert.deepEqual(await resumePromise, { thread: { id: "thread_1", preview: "Existing thread" } });
 });
 
+test("desktop connector extracts user bubbles from alternate turn shapes", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+
+  const transcriptPromise = connector.getThreadTranscript({ threadId: "thread_1", limit: 10, offset: 0 });
+  await flushAsyncWork();
+  assert.deepEqual(transport.sent[0], {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "thread/turns/list",
+    params: { threadId: "thread_1" },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      data: [
+        {
+          id: "turn_1",
+          userMessage: { content: [{ type: "input_text", text: "show the current status" }] },
+          messages: [
+            { type: "message", role: "assistant", content: [{ type: "output_text", text: "status is green" }] },
+          ],
+        },
+      ],
+    },
+  });
+
+  const transcript = await transcriptPromise;
+  assert.deepEqual(transcript.messages.map((message) => [message.role, message.text]), [
+    ["assistant", "status is green"],
+    ["user", "show the current status"],
+  ]);
+  assert.equal(transcript.total, 2);
+});
+
 test("desktop connector interrupts the active turn when cancelling", async () => {
   const transport = new MemoryTransport();
   const connector = new CodexDesktopConnector({ transport });

@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    fs,
+    fs::{self, OpenOptions},
     io::{Read, Write},
     net::TcpStream,
     path::PathBuf,
@@ -17,11 +17,15 @@ use tauri::{
     AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
+#[cfg(not(target_os = "windows"))]
+use tauri_plugin_shell::process::CommandChild;
+#[cfg(not(target_os = "windows"))]
+use tauri_plugin_shell::ShellExt;
 
 struct ComoteSidecar(Mutex<Option<ComoteChild>>);
 
 enum ComoteChild {
+    #[cfg(not(target_os = "windows"))]
     Shell(CommandChild),
     System(SystemChild),
 }
@@ -29,6 +33,7 @@ enum ComoteChild {
 impl ComoteChild {
     fn pid(&self) -> Option<u32> {
         match self {
+            #[cfg(not(target_os = "windows"))]
             ComoteChild::Shell(child) => Some(child.pid()),
             ComoteChild::System(child) => Some(child.id()),
         }
@@ -36,6 +41,7 @@ impl ComoteChild {
 
     fn kill(self) {
         match self {
+            #[cfg(not(target_os = "windows"))]
             ComoteChild::Shell(child) => {
                 let _ = child.kill();
             }
@@ -462,6 +468,19 @@ fn start_comote_sidecar(app: &AppHandle, port: u16) -> tauri::Result<ComoteChild
         .join("index.js");
     let state_path = app_data_dir.join("state.json");
 
+    #[cfg(target_os = "windows")]
+    {
+        return start_manual_comote_node(&resource_dir, server_entry, port, state_path)
+            .map(ComoteChild::System)
+            .map_err(|error| {
+                tauri::Error::Anyhow(anyhow::anyhow!(
+                    "failed to start comote-node.exe: {error}"
+                ))
+            });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
     let sidecar_result = app
         .shell()
         .sidecar("comote-node")
@@ -480,6 +499,7 @@ fn start_comote_sidecar(app: &AppHandle, port: u16) -> tauri::Result<ComoteChild
                     "failed to start bundled comote-node sidecar: {error}; manual comote-node.exe fallback failed: {fallback_error}"
                 ))
             }),
+    }
     }
 }
 
@@ -510,6 +530,19 @@ fn start_manual_comote_node(
 ) -> std::io::Result<SystemChild> {
     #[cfg(target_os = "windows")]
     {
+        let log_dir = state_path
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| resource_dir.clone());
+        let _ = fs::create_dir_all(&log_dir);
+        let stdout = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("comote-node.stdout.log"))?;
+        let stderr = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("comote-node.stderr.log"))?;
         let executable = windows_manual_sidecar_candidates(resource_dir)
             .into_iter()
             .find(|candidate| candidate.exists())
@@ -519,10 +552,13 @@ fn start_manual_comote_node(
                     "comote-node.exe was not found",
                 )
             })?;
-        return std::process::Command::new(executable)
-            .arg(server_entry)
+        return std::process::Command::new(normalize_windows_path(executable))
+            .arg(normalize_windows_path(server_entry))
+            .current_dir(normalize_windows_path(resource_dir.clone()))
             .env("PORT", port.to_string())
-            .env("COMOTE_STATE_PATH", state_path)
+            .env("COMOTE_STATE_PATH", normalize_windows_path(state_path))
+            .stdout(stdout)
+            .stderr(stderr)
             .spawn();
     }
     #[cfg(not(target_os = "windows"))]
@@ -674,12 +710,24 @@ fn data_url(html: &str) -> String {
     format!("data:text/html;charset=utf-8,{encoded}")
 }
 
+#[cfg(not(target_os = "windows"))]
 fn server_entry_to_string(path: PathBuf) -> String {
     path_to_string(path)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn path_to_string(path: PathBuf) -> String {
     path.to_string_lossy().into_owned()
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_windows_path(path: PathBuf) -> PathBuf {
+    let body = path.to_string_lossy();
+    if let Some(stripped) = body.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path
+    }
 }
 
 #[cfg(test)]
